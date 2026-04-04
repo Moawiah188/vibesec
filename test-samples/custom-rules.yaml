@@ -1,0 +1,50 @@
+# custom-rules.yaml — standalone Semgrep rule file
+# Referenced via externalRuleFiles in .vibesec.yaml.
+# Must have a top-level "rules:" array.
+#
+# Example .vibesec.yaml that loads this file:
+#
+#   presets:
+#     - p/owasp-top-ten
+#   externalRuleFiles:
+#     - custom-rules.yaml
+
+rules:
+  - id: vibesec.hardcoded-secret-assignment
+    message: >
+      Hardcoded secret or API key detected.
+      Use environment variables or a secrets manager instead.
+    severity: ERROR
+    languages: [python, javascript, typescript]
+    patterns:
+      - pattern: $VAR = "sk-..."
+    metadata:
+      category: security
+      cwe: "CWE-798"
+      confidence: MEDIUM
+
+  - id: vibesec.sql-string-concat
+    message: >
+      SQL query built by string concatenation may be vulnerable to injection.
+      Use parameterised queries instead.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - pattern: |
+          $QUERY = "..." + $VAR
+    metadata:
+      category: security
+      cwe: "CWE-89"
+      confidence: HIGH
+
+  - id: vibesec.insecure-random
+    message: >
+      random.random() is not cryptographically secure.
+      Use secrets.token_bytes() or os.urandom() for security-sensitive values.
+    severity: WARNING
+    languages: [python]
+    pattern: random.random()
+    metadata:
+      category: security
+      cwe: "CWE-338"
+      confidence: MEDIUM

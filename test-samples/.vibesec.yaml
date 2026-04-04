@@ -1,0 +1,21 @@
+# .vibesec.yaml — preset-based example
+# Copy this to your workspace root to use it.
+
+# "vibesec:default" is the bundled OWASP-style ruleset (runs 100% locally)
+# You can also use Semgrep registry packs (e.g. p/owasp-top-ten) but those
+# require internet access and may need "semgrep login".
+# https://semgrep.dev/explore
+
+presets:
+  - vibesec:default
+
+severity:
+  minSeverity: warning   # only show WARNING and ERROR findings
+
+files:
+  exclude:
+    - "**/node_modules/**"
+    - "**/dist/**"
+    - "**/*.min.js"
+    - "**/*.test.py"
+    - "**/*.spec.py"

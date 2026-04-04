@@ -2,7 +2,7 @@
   "name": "vibesec",
   "displayName": "VibeSec",
   "description": "AI-assisted security scanner for vibe coders",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -14,16 +14,43 @@
       {
         "command": "vibesec.scanCurrentFile",
         "title": "VibeSec: Scan Current File"
+      },
+      {
+        "command": "vibesec.goToFinding",
+        "title": "VibeSec: Go to Finding"
+      },
+      {
+        "command": "vibesec.reloadPolicy",
+        "title": "VibeSec: Reload Policy"
+      },
+      {
+        "command": "vibesec.openPolicyFile",
+        "title": "VibeSec: Open Policy File"
       }
-    ]
+    ],
+    "views": {
+      "explorer": [
+        {
+          "id": "vibesec.findingsPanel",
+          "name": "VibeSec Findings",
+          "contextualTitle": "VibeSec"
+        }
+      ]
+    }
   },
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./"
   },
+  "dependencies": {
+    "js-yaml": "^4.1.0",
+    "minimatch": "^9.0.4"
+  },
   "devDependencies": {
     "@types/vscode": "^1.85.0",
     "@types/node": "^20.0.0",
+    "@types/js-yaml": "^4.0.9",
+    "@types/minimatch": "^5.1.2",
     "typescript": "^5.3.0"
   }
 }
