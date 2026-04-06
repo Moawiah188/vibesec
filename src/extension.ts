@@ -3,8 +3,9 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { minimatch } from "minimatch";
 import { FindingsProvider, PanelState } from "./findingsProvider";
-import { getDefaultPolicy, loadPolicy, PolicyLoadResult } from "./policy";
+import { loadPolicy, PolicyLoadResult } from "./policy";
 import { scanFile } from "./scanner";
+import { isScanFileNode, isScannableUri, ScanProvider } from "./scanProvider";
 import { Finding, PolicyConfig } from "./types";
 
 // ── Policy template written when openPolicyFile creates a new file ────────────
@@ -143,7 +144,7 @@ function showPolicyErrors(errors: string[], source: "load" | "reload"): void {
 // ── Activate ──────────────────────────────────────────────────────────────────
 
 export function activate(context: vscode.ExtensionContext): void {
-  // ── 1. Set up TreeView ────────────────────────────────────────────────────
+  // ── 1. Findings tree view ─────────────────────────────────────────────────
   const findingsProvider = new FindingsProvider();
   const treeView = vscode.window.createTreeView("vibesec.findingsPanel", {
     treeDataProvider: findingsProvider,
@@ -151,7 +152,59 @@ export function activate(context: vscode.ExtensionContext): void {
   });
   treeView.message = findingsProvider.getViewMessage();
 
+  // ── 1b. Scan tree view (workspace files with multi-select) ────────────────
+  //
+  // canSelectMany: true gives us the full-row blue highlight via the theme's
+  // list.activeSelectionBackground — no checkboxes, same UX as the native
+  // File Explorer (Ctrl/Cmd+click to add, Shift+click for range).
+  const scanProvider = new ScanProvider();
+  const scanTreeView = vscode.window.createTreeView("vibesec.scanPanel", {
+    treeDataProvider: scanProvider,
+    showCollapseAll:  true,
+    canSelectMany:    true,
+  });
+
+  function refreshScanPanelState(): void {
+    const hasWorkspace = !!vscode.workspace.workspaceFolders?.length;
+    vscode.commands.executeCommand(
+      "setContext",
+      "vibesec.scanPanelState",
+      hasWorkspace ? "ready" : "noWorkspace",
+    );
+  }
+  refreshScanPanelState();
+
+  // Keep the Scan panel tree in sync with workspace folder and file changes.
+  const workspaceFolderListener =
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      refreshScanPanelState();
+      scanProvider.refresh();
+    });
+
+  // Light-weight file system watcher: rebuild the scan tree when files are
+  // created, deleted, or renamed anywhere in the workspace. We do NOT watch
+  // content changes — those don't affect the tree structure.
+  const fsWatcher = vscode.workspace.createFileSystemWatcher("**/*");
+  fsWatcher.onDidCreate(() => scanProvider.refresh());
+  fsWatcher.onDidDelete(() => scanProvider.refresh());
+
+  function getConfig() {
+    const cfg = vscode.workspace.getConfiguration("vibesec");
+    return {
+      semgrepPath:           cfg.get<string>("semgrepPath", "semgrep"),
+      autoScanOnSave:        cfg.get<boolean>("autoScanOnSave", false),
+      showInlineDecorations: cfg.get<boolean>("showInlineDecorations", true),
+    };
+  }
+
+  function setContextState(kind: PanelState["kind"]): void {
+    vscode.commands.executeCommand("setContext", "vibesec.panelState", kind);
+  }
+
+  setContextState("empty");
+
   function updatePanel(state: PanelState): void {
+    setContextState(state.kind);
     findingsProvider.setState(state);
     treeView.message = findingsProvider.getViewMessage();
 
@@ -166,6 +219,72 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   }
 
+  // ── Shared scan runner ───────────────────────────────────────────────────
+  //
+  // Runs a Semgrep scan on a single file, honors the policy's exclude globs,
+  // and updates the Findings panel + inline diagnostics. Both scanCurrentFile
+  // and scanSelected funnel through here so the behavior stays identical.
+  async function runScanOnFile(filePath: string): Promise<void> {
+    const fileUri = vscode.Uri.file(filePath);
+    const folder  = vscode.workspace.getWorkspaceFolder(fileUri);
+    const workspaceRoot = folder?.uri.fsPath
+      ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+    if (!workspaceRoot) {
+      vscode.window.showWarningMessage(
+        "VibeSec: No workspace folder is open. Open a folder to use VibeSec.",
+      );
+      updatePanel({ kind: "error", message: "No workspace folder is open." });
+      return;
+    }
+
+    const policyResult = getOrLoadPolicy(workspaceRoot);
+    if (!policyResult.ok) {
+      showPolicyErrors(policyResult.errors, "load");
+    }
+    const policy = policyResult.policy;
+
+    if (isFileExcluded(filePath, workspaceRoot, policy)) {
+      vscode.window.showInformationMessage(
+        "VibeSec: This file is excluded by policy (files.exclude). Skipping scan.",
+      );
+      return;
+    }
+
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title:    `VibeSec: Scanning ${path.basename(filePath)}...`,
+      },
+      async () => {
+        try {
+          const { semgrepPath, showInlineDecorations } = getConfig();
+          const findings = await scanFile(filePath, policy, context.extensionPath, semgrepPath);
+
+          if (showInlineDecorations) {
+            diagnosticCollection.set(fileUri, findings.map(toDiagnostic));
+          } else {
+            diagnosticCollection.delete(fileUri);
+          }
+
+          if (findings.length === 0) {
+            updatePanel({ kind: "noFindings" });
+            vscode.window.showInformationMessage("VibeSec: No issues found.");
+          } else {
+            updatePanel({ kind: "findings", findings });
+            vscode.window.showWarningMessage(
+              `VibeSec: Found ${findings.length} issue${findings.length !== 1 ? "s" : ""}.`,
+            );
+          }
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          updatePanel({ kind: "error", message: msg });
+          vscode.window.showErrorMessage(`VibeSec scan failed: ${msg}`);
+        }
+      },
+    );
+  }
+
   // ── 2. vibesec.scanCurrentFile ────────────────────────────────────────────
   const scanCmd = vscode.commands.registerCommand(
     "vibesec.scanCurrentFile",
@@ -175,67 +294,48 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.window.showWarningMessage("VibeSec: No file is open.");
         return;
       }
+      await runScanOnFile(editor.document.uri.fsPath);
+    },
+  );
 
-      const fileUri  = editor.document.uri;
-      const filePath = fileUri.fsPath;
+  // ── 2b. vibesec.scanSelected ─────────────────────────────────────────────
+  //
+  // Reads the Scan panel's native selection (set via click / Ctrl+click /
+  // Shift+click), filters to scannable files, and runs the scan.
+  // Single-file for now — warns and scans the first file when >1 is picked.
+  const scanSelectedCmd = vscode.commands.registerCommand(
+    "vibesec.scanSelected",
+    async () => {
+      const selection = scanTreeView.selection;
+      const scannableFiles = selection
+        .filter(isScanFileNode)
+        .filter((n) => isScannableUri(n.uri))
+        .map((n) => n.uri.fsPath);
 
-      // Resolve workspace root from the active file
-      const folder        = vscode.workspace.getWorkspaceFolder(fileUri);
-      const workspaceRoot = folder?.uri.fsPath
-        ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-
-      if (!workspaceRoot) {
+      if (scannableFiles.length === 0) {
         vscode.window.showWarningMessage(
-          "VibeSec: No workspace folder is open. Open a folder to use VibeSec."
+          "VibeSec: Select one or more files in the Scan panel first. " +
+          "(Click a file, Ctrl/Cmd+Click to add more.)",
         );
-        updatePanel({ kind: "error", message: "No workspace folder is open." });
         return;
       }
 
-      // Load (or use cached) policy for this workspace root
-      const policyResult = getOrLoadPolicy(workspaceRoot);
-      if (!policyResult.ok) {
-        showPolicyErrors(policyResult.errors, "load");
-      }
-      const policy = policyResult.policy;
-
-      // Check files.exclude before scanning
-      if (isFileExcluded(filePath, workspaceRoot, policy)) {
+      if (scannableFiles.length > 1) {
         vscode.window.showInformationMessage(
-          "VibeSec: This file is excluded by policy (files.exclude). Skipping scan."
+          `VibeSec: Multi-file scanning is coming soon — scanning ${path.basename(scannableFiles[0])} for now.`,
         );
-        return;
       }
 
-      await vscode.window.withProgress(
-        {
-          location: vscode.ProgressLocation.Notification,
-          title:    "VibeSec: Scanning...",
-        },
-        async () => {
-          try {
-            const findings = await scanFile(filePath, policy, context.extensionPath);
+      await runScanOnFile(scannableFiles[0]);
+    },
+  );
 
-            // Sprint 1 behaviour preserved: inline diagnostics
-            diagnosticCollection.set(fileUri, findings.map(toDiagnostic));
-
-            if (findings.length === 0) {
-              updatePanel({ kind: "noFindings" });
-              vscode.window.showInformationMessage("VibeSec: No issues found.");
-            } else {
-              updatePanel({ kind: "findings", findings });
-              vscode.window.showWarningMessage(
-                `VibeSec: Found ${findings.length} issue${findings.length !== 1 ? "s" : ""}.`
-              );
-            }
-          } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : String(err);
-            updatePanel({ kind: "error", message: msg });
-            vscode.window.showErrorMessage(`VibeSec scan failed: ${msg}`);
-          }
-        }
-      );
-    }
+  // ── 2c. vibesec.refreshScanTree ──────────────────────────────────────────
+  const refreshScanTreeCmd = vscode.commands.registerCommand(
+    "vibesec.refreshScanTree",
+    () => {
+      scanProvider.refresh();
+    },
   );
 
   // ── 3. vibesec.goToFinding ────────────────────────────────────────────────
@@ -325,13 +425,43 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   );
 
+  // ── 6. vibesec.copyDescription ───────────────────────────────────────────────
+  //
+  // Copies a human-readable one-liner: "rule-id · Line N · message".
+  // The TreeView delivers the detail node whose `finding` holds everything.
+  const copyDescCmd = vscode.commands.registerCommand(
+    "vibesec.copyDescription",
+    async (node: { finding?: Finding }) => {
+      const f = node?.finding;
+      if (!f) { return; }
+      const lineNum = f.startLine + 1;
+      const text = `${f.ruleId}  ·  ${path.basename(f.filePath)}:${lineNum}  ·  ${f.message}`;
+      await vscode.env.clipboard.writeText(text);
+      vscode.window.showInformationMessage("VibeSec: Description copied to clipboard.");
+    },
+  );
+
+  const onSaveListener = vscode.workspace.onDidSaveTextDocument(async (document) => {
+    if (!getConfig().autoScanOnSave) { return; }
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || editor.document.uri.fsPath !== document.uri.fsPath) { return; }
+    await vscode.commands.executeCommand("vibesec.scanCurrentFile");
+  });
+
   context.subscriptions.push(
     diagnosticCollection,
     treeView,
+    scanTreeView,
+    workspaceFolderListener,
+    fsWatcher,
     scanCmd,
+    scanSelectedCmd,
+    refreshScanTreeCmd,
     goToCmd,
     reloadCmd,
     openPolicyCmd,
+    copyDescCmd,
+    onSaveListener,
   );
 }
 

@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VibeSec Design Mockups</title>
+  <link rel="stylesheet" href="./shared/vscode-theme.css">
+  <link rel="stylesheet" href="./shared/tokens.css">
+  <link rel="stylesheet" href="./shared/components.css">
+  <style>
+    .wrap {
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: var(--space-8) var(--space-6);
+    }
+    .hero {
+      margin-bottom: var(--space-8);
+      padding-bottom: var(--space-6);
+      border-bottom: 1px solid var(--border-panel);
+      position: relative;
+    }
+    .hero__watermark {
+      position: absolute;
+      top: -16px;
+      right: 0;
+      width: 120px;
+      height: 120px;
+      opacity: 0.06;
+      color: var(--brand-accent);
+    }
+    .hero__title {
+      font-family: var(--font-mono);
+      font-size: 32px;
+      font-weight: var(--fw-bold);
+      color: var(--text-primary);
+      margin: 0 0 var(--space-2) 0;
+      letter-spacing: -0.02em;
+    }
+    .hero__title span { color: var(--brand-accent); }
+    .hero__subtitle {
+      font-size: 15px;
+      color: var(--text-secondary);
+      margin: 0;
+    }
+    .hero__meta {
+      margin-top: var(--space-4);
+      font-family: var(--font-mono);
+      font-size: var(--fs-meta);
+      color: var(--text-secondary);
+      display: flex;
+      gap: var(--space-4);
+      flex-wrap: wrap;
+    }
+    .hero__meta span::before {
+      content: "◆ ";
+      color: var(--brand-accent);
+      opacity: 0.5;
+    }
+
+    .gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: var(--space-4);
+    }
+    .tile {
+      position: relative;
+      background: var(--surface-card);
+      border: 1px solid var(--border-panel);
+      border-radius: var(--radius-card);
+      padding: var(--space-4);
+      text-decoration: none;
+      color: inherit;
+      overflow: hidden;
+      transition: background-color var(--transition-fast), transform var(--transition-fast);
+      display: block;
+    }
+    .tile::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 1px;
+      background: var(--brand-accent-line);
+    }
+    .tile:hover {
+      background: var(--surface-hover);
+      transform: translateY(-1px);
+    }
+    .tile[aria-disabled="true"] {
+      opacity: 0.4;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+    .tile__label {
+      font-family: var(--font-mono);
+      font-size: var(--fs-badge);
+      color: var(--brand-accent);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-section);
+      margin-bottom: var(--space-2);
+      font-weight: var(--fw-bold);
+    }
+    .tile__title {
+      font-size: 16px;
+      font-weight: var(--fw-semibold);
+      color: var(--text-primary);
+      margin: 0 0 var(--space-2) 0;
+    }
+    .tile__desc {
+      font-size: var(--fs-body);
+      color: var(--text-secondary);
+      margin: 0 0 var(--space-3) 0;
+    }
+    .tile__meta {
+      font-family: var(--font-mono);
+      font-size: var(--fs-badge);
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-badge);
+    }
+    .tile__arrow {
+      position: absolute;
+      right: var(--space-4);
+      bottom: var(--space-4);
+      color: var(--text-secondary);
+      transition: color var(--transition-fast), transform var(--transition-fast);
+    }
+    .tile:hover .tile__arrow {
+      color: var(--brand-accent);
+      transform: translateX(2px);
+    }
+
+    .category-header {
+      font-family: var(--font-mono);
+      font-size: var(--fs-section);
+      font-weight: var(--fw-bold);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-section);
+      color: var(--text-secondary);
+      margin: var(--space-8) 0 var(--space-4) 0;
+      padding-bottom: var(--space-2);
+      border-bottom: 1px solid var(--border-panel);
+    }
+    .category-header:first-of-type { margin-top: 0; }
+
+    .arch-note {
+      margin-top: var(--space-8);
+      padding: var(--space-4);
+      background: var(--surface-card);
+      border: 1px solid var(--border-panel);
+      border-radius: var(--radius-card);
+      position: relative;
+    }
+    .arch-note::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 1px;
+      background: var(--severity-warning);
+      opacity: 0.5;
+    }
+    .arch-note__label {
+      font-family: var(--font-mono);
+      font-size: var(--fs-badge);
+      font-weight: var(--fw-bold);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-section);
+      color: var(--severity-warning);
+      margin-bottom: var(--space-2);
+    }
+    .arch-note__body {
+      font-size: var(--fs-body);
+      color: var(--text-primary);
+      margin: 0;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <svg style="display:none"><use href="./shared/icons.svg#icon-shield-bolt"/></svg>
+
+  <div class="wrap">
+    <header class="hero">
+      <svg class="hero__watermark" viewBox="0 0 24 24">
+        <use href="./shared/icons.svg#icon-shield-bolt"></use>
+      </svg>
+      <h1 class="hero__title">Vibe<span>Sec</span>&nbsp;Design Mockups</h1>
+      <p class="hero__subtitle">Terminal Noir — VS Code webview design language, rendered as live HTML/CSS</p>
+      <div class="hero__meta">
+        <span>Variables-first</span>
+        <span>No toolkit dependency</span>
+        <span>Plain web standards</span>
+        <span>Accessibility-ready</span>
+      </div>
+    </header>
+
+    <h2 class="category-header">Foundation</h2>
+    <div class="gallery">
+      <a href="./design-system/index.html" class="tile">
+        <div class="tile__label">Page 01</div>
+        <h3 class="tile__title">Design System</h3>
+        <p class="tile__desc">Color palette, typography, spacing, and every atomic component.</p>
+        <span class="tile__meta">Tokens · Components · Motif</span>
+        <svg class="tile__arrow" width="16" height="16" viewBox="0 0 16 16"><use href="./shared/icons.svg#icon-chevron-right"/></svg>
+      </a>
+    </div>
+
+    <h2 class="category-header">Webview Panels</h2>
+    <div class="gallery">
+      <a href="./ai-fix/default.html" class="tile">
+        <div class="tile__label">Sprint 4 · Headliner</div>
+        <h3 class="tile__title">AI Fix Panel</h3>
+        <p class="tile__desc">Click a finding, get an AI-generated fix. Editable prompt, code snippet, suggested fix.</p>
+        <span class="tile__meta">4 states · Narrow variant · HC variant</span>
+        <svg class="tile__arrow" width="16" height="16" viewBox="0 0 16 16"><use href="./shared/icons.svg#icon-chevron-right"/></svg>
+      </a>
+      <a href="./settings/default.html" class="tile">
+        <div class="tile__label">Sprint 4</div>
+        <h3 class="tile__title">Settings Panel</h3>
+        <p class="tile__desc">API key, LLM provider, scan config, policy folder path.</p>
+        <span class="tile__meta">5 states · Light theme · HC variant</span>
+        <svg class="tile__arrow" width="16" height="16" viewBox="0 0 16 16"><use href="./shared/icons.svg#icon-chevron-right"/></svg>
+      </a>
+      <a href="./preset-manager/default.html" class="tile" aria-disabled="true">
+        <div class="tile__label">Sprint 4</div>
+        <h3 class="tile__title">Preset Manager</h3>
+        <p class="tile__desc">All rules grouped by OWASP category, expandable details, search, import.</p>
+        <span class="tile__meta">Coming next</span>
+        <svg class="tile__arrow" width="16" height="16" viewBox="0 0 16 16"><use href="./shared/icons.svg#icon-chevron-right"/></svg>
+      </a>
+      <a href="./history/populated.html" class="tile" aria-disabled="true">
+        <div class="tile__label">Sprint 5</div>
+        <h3 class="tile__title">Scan History</h3>
+        <p class="tile__desc">Stat cards, sparkline trend, recent scans log with expandable entries.</p>
+        <span class="tile__meta">Coming next</span>
+        <svg class="tile__arrow" width="16" height="16" viewBox="0 0 16 16"><use href="./shared/icons.svg#icon-chevron-right"/></svg>
+      </a>
+    </div>
+
+    <div class="arch-note">
+      <div class="arch-note__label">Architecture Note</div>
+      <p class="arch-note__body">
+        Every surface color maps to a <code>--vscode-*</code> CSS variable first. Brand tint only appears as
+        the 1px top-border accent on primary cards, the sparkline stroke, and the shield motif. The
+        <code>@vscode/webview-ui-toolkit</code> was archived in January 2025 — these mockups depend on
+        nothing but plain web standards and ship directly into the webview HTML.
+      </p>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,50 +1,34 @@
-# custom-rules.yaml — standalone Semgrep rule file
-# Referenced via externalRuleFiles in .vibesec.yaml.
-# Must have a top-level "rules:" array.
-#
-# Example .vibesec.yaml that loads this file:
-#
-#   presets:
-#     - p/owasp-top-ten
-#   externalRuleFiles:
-#     - custom-rules.yaml
+# custom-rules.yaml — example external rule file
+# Reference this from .vibesec.yaml via externalRuleFiles:
+#   - test-samples/custom-rules.yaml
 
 rules:
-  - id: vibesec.hardcoded-secret-assignment
-    message: >
-      Hardcoded secret or API key detected.
-      Use environment variables or a secrets manager instead.
+  - id: my-team.hardcoded-jwt-secret
+    message: "Hardcoded JWT secret detected. Move this to an environment variable."
     severity: ERROR
     languages: [python, javascript, typescript]
     patterns:
-      - pattern: $VAR = "sk-..."
+      - pattern: jwt.encode(..., "$SECRET", ...)
     metadata:
       category: security
       cwe: "CWE-798"
-      confidence: MEDIUM
 
-  - id: vibesec.sql-string-concat
-    message: >
-      SQL query built by string concatenation may be vulnerable to injection.
-      Use parameterised queries instead.
+  - id: my-team.raw-sql-format
+    message: "SQL query built with string formatting — potential SQL injection."
     severity: ERROR
     languages: [python]
     patterns:
-      - pattern: |
-          $QUERY = "..." + $VAR
+      - pattern: cursor.execute("..." % ...)
+      - pattern: cursor.execute(f"...")
     metadata:
       category: security
       cwe: "CWE-89"
-      confidence: HIGH
 
-  - id: vibesec.insecure-random
-    message: >
-      random.random() is not cryptographically secure.
-      Use secrets.token_bytes() or os.urandom() for security-sensitive values.
+  - id: my-team.insecure-random-token
+    message: "random.random() is not cryptographically secure. Use secrets.token_hex() instead."
     severity: WARNING
     languages: [python]
     pattern: random.random()
     metadata:
       category: security
-      cwe: "CWE-338"
-      confidence: MEDIUM
+      cwe: "CWE-330"

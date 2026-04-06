@@ -167,7 +167,8 @@ function buildConfigArgs(
 export function scanFile(
   filePath: string,
   policy: PolicyConfig,
-  extensionPath: string
+  extensionPath: string,
+  semgrepPath: string = "semgrep"
 ): Promise<Finding[]> {
   return new Promise((resolve, reject) => {
     let tmp: TempRuleFile | null = null;
@@ -183,7 +184,7 @@ export function scanFile(
     const configArgs = buildConfigArgs(policy, tmp, extensionPath);
 
     execFile(
-      "semgrep",
+      semgrepPath,
       ["scan", "--json", "--metrics=off", ...configArgs, filePath],
       {
         maxBuffer: 10 * 1024 * 1024,

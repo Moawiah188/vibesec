@@ -2,7 +2,7 @@
   "name": "vibesec",
   "displayName": "VibeSec",
   "description": "AI-assisted security scanner for vibe coders",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -13,30 +13,223 @@
     "commands": [
       {
         "command": "vibesec.scanCurrentFile",
-        "title": "VibeSec: Scan Current File"
+        "title": "Scan Current File",
+        "category": "VibeSec",
+        "icon": "$(play)"
       },
       {
         "command": "vibesec.goToFinding",
-        "title": "VibeSec: Go to Finding"
+        "title": "Go to Finding",
+        "category": "VibeSec"
       },
       {
         "command": "vibesec.reloadPolicy",
-        "title": "VibeSec: Reload Policy"
+        "title": "Reload Policy",
+        "category": "VibeSec",
+        "icon": "$(refresh)"
       },
       {
         "command": "vibesec.openPolicyFile",
-        "title": "VibeSec: Open Policy File"
+        "title": "Open Policy File",
+        "category": "VibeSec"
+      },
+      {
+        "command": "vibesec.copyDescription",
+        "title": "Copy Description",
+        "category": "VibeSec",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "vibesec.scanSelected",
+        "title": "Scan Selected",
+        "category": "VibeSec",
+        "icon": "$(play)"
+      },
+      {
+        "command": "vibesec.refreshScanTree",
+        "title": "Refresh File Tree",
+        "category": "VibeSec",
+        "icon": "$(refresh)"
       }
     ],
-    "views": {
-      "explorer": [
+    "viewsContainers": {
+      "activitybar": [
         {
-          "id": "vibesec.findingsPanel",
-          "name": "VibeSec Findings",
-          "contextualTitle": "VibeSec"
+          "id": "vibesec",
+          "title": "VibeSec",
+          "icon": "media/vibesec-icon.svg"
         }
       ]
-    }
+    },
+    "views": {
+      "vibesec": [
+        {
+          "id": "vibesec.scanPanel",
+          "name": "Scan",
+          "contextualTitle": "VibeSec Scan"
+        },
+        {
+          "id": "vibesec.findingsPanel",
+          "name": "Findings",
+          "contextualTitle": "VibeSec Findings"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "vibesec.scanPanel",
+        "contents": "Open a folder to browse files and run scans.\n\n[$(folder-opened) Open Folder](command:vscode.openFolder)",
+        "when": "vibesec.scanPanelState == 'noWorkspace'"
+      },
+      {
+        "view": "vibesec.findingsPanel",
+        "contents": "No scan has run yet.\n\n[$(play) Scan Current File](command:vibesec.scanCurrentFile)\n\n[$(gear) Open Policy File](command:vibesec.openPolicyFile)",
+        "when": "vibesec.panelState == 'empty'"
+      },
+      {
+        "view": "vibesec.findingsPanel",
+        "contents": "$(pass-filled) No security issues found.\n\nYour last scan came back clean.",
+        "when": "vibesec.panelState == 'noFindings'"
+      },
+      {
+        "view": "vibesec.findingsPanel",
+        "contents": "$(error) Scan encountered an error.\n\nCheck that Semgrep is installed and on your PATH.\n\n[$(settings-gear) Open VibeSec Settings](command:workbench.action.openSettings?%5B%22vibesec%22%5D)",
+        "when": "vibesec.panelState == 'error'"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "vibesec.scanSelected",
+          "when": "view == vibesec.scanPanel",
+          "group": "navigation@1"
+        },
+        {
+          "command": "vibesec.refreshScanTree",
+          "when": "view == vibesec.scanPanel",
+          "group": "navigation@2"
+        },
+        {
+          "command": "vibesec.scanCurrentFile",
+          "when": "view == vibesec.findingsPanel",
+          "group": "navigation@1"
+        },
+        {
+          "command": "vibesec.reloadPolicy",
+          "when": "view == vibesec.findingsPanel",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/inline": [
+        {
+          "command": "vibesec.copyDescription",
+          "when": "view == vibesec.findingsPanel && viewItem == vibesecFindingDetail",
+          "group": "inline@1"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "vibesec.copyDescription",
+          "when": "view == vibesec.findingsPanel && viewItem == vibesecFindingDetail",
+          "group": "vibesec@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "vibesec.copyDescription",
+          "when": "false"
+        },
+        {
+          "command": "vibesec.goToFinding",
+          "when": "false"
+        }
+      ]
+    },
+    "colors": [
+      {
+        "id": "vibesec.errorForeground",
+        "description": "Color for error-severity findings in the VibeSec panel",
+        "defaults": {
+          "dark": "#F48771",
+          "light": "#E51400",
+          "highContrast": "#F48771",
+          "highContrastLight": "#E51400"
+        }
+      },
+      {
+        "id": "vibesec.warningForeground",
+        "description": "Color for warning-severity findings in the VibeSec panel",
+        "defaults": {
+          "dark": "#CCA700",
+          "light": "#915100",
+          "highContrast": "#CCA700",
+          "highContrastLight": "#915100"
+        }
+      },
+      {
+        "id": "vibesec.infoForeground",
+        "description": "Color for info-severity findings in the VibeSec panel",
+        "defaults": {
+          "dark": "#75BEFF",
+          "light": "#306EAD",
+          "highContrast": "#75BEFF",
+          "highContrastLight": "#306EAD"
+        }
+      }
+    ],
+    "configuration": {
+      "title": "VibeSec",
+      "properties": {
+        "vibesec.semgrepPath": {
+          "type": "string",
+          "default": "semgrep",
+          "description": "Path to the Semgrep binary. Change this if semgrep is not on your PATH (e.g. /usr/local/bin/semgrep).",
+          "scope": "machine-overridable"
+        },
+        "vibesec.autoScanOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically scan on file save. Off by default — enable only if you want continuous feedback.",
+          "scope": "resource"
+        },
+        "vibesec.showInlineDecorations": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inline diagnostic squiggles for VibeSec findings directly in the editor.",
+          "scope": "resource"
+        }
+      }
+    },
+    "walkthroughs": [
+      {
+        "id": "vibesec.gettingStarted",
+        "title": "Get started with VibeSec",
+        "description": "Scan your code for security issues in three steps.",
+        "steps": [
+          {
+            "id": "vibesec.step.install",
+            "title": "Install Semgrep",
+            "description": "VibeSec uses Semgrep under the hood. Install it once and you're set.\n\n```\npip install semgrep\n```\n\n[Open Terminal](command:workbench.action.terminal.new)",
+            "media": { "markdown": "media/walkthrough/install.md" },
+            "completionEvents": []
+          },
+          {
+            "id": "vibesec.step.scan",
+            "title": "Run your first scan",
+            "description": "Open any file and run a scan — findings appear in the VibeSec panel on the left.\n\n[$(play) Scan Current File](command:vibesec.scanCurrentFile)",
+            "media": { "markdown": "media/walkthrough/scan.md" },
+            "completionEvents": ["onCommand:vibesec.scanCurrentFile"]
+          },
+          {
+            "id": "vibesec.step.policy",
+            "title": "Customize with a policy file",
+            "description": "Drop a .vibesec.yaml in your project to control which rules run.\n\n[$(gear) Create Policy File](command:vibesec.openPolicyFile)",
+            "media": { "markdown": "media/walkthrough/policy.md" },
+            "completionEvents": ["onCommand:vibesec.openPolicyFile"]
+          }
+        ]
+      }
+    ]
   },
   "scripts": {
     "compile": "tsc -p ./",

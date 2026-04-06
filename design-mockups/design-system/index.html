@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VibeSec Design System</title>
+  <link rel="stylesheet" href="../shared/vscode-theme.css">
+  <link rel="stylesheet" href="../shared/tokens.css">
+  <link rel="stylesheet" href="../shared/components.css">
+  <style>
+    .wrap { max-width: 1160px; margin: 0 auto; padding: var(--space-8) var(--space-6); }
+    .page-title {
+      font-family: var(--font-mono);
+      font-size: 28px;
+      font-weight: var(--fw-bold);
+      color: var(--text-primary);
+      margin: 0 0 var(--space-2) 0;
+      letter-spacing: -0.02em;
+    }
+    .page-title span { color: var(--brand-accent); }
+    .page-subtitle { color: var(--text-secondary); margin: 0 0 var(--space-2) 0; }
+    .warn-note {
+      color: var(--severity-warning);
+      font-size: var(--fs-body);
+      margin: 0 0 var(--space-8) 0;
+    }
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      color: var(--text-link);
+      font-family: var(--font-mono);
+      font-size: var(--fs-meta);
+      text-decoration: none;
+      margin-bottom: var(--space-6);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-section);
+    }
+    .back-link:hover { text-decoration: underline; }
+
+    .numbered-section {
+      margin-top: var(--space-8);
+    }
+    .numbered-section__label {
+      display: flex;
+      align-items: baseline;
+      gap: var(--space-3);
+      font-family: var(--font-mono);
+      font-size: var(--fs-section);
+      font-weight: var(--fw-bold);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-section);
+      color: var(--text-secondary);
+      padding-bottom: var(--space-2);
+      border-bottom: 1px solid var(--border-panel);
+      margin-bottom: var(--space-4);
+    }
+    .numbered-section__label span { color: var(--brand-accent); }
+    .numbered-section__desc {
+      color: var(--text-secondary);
+      font-size: var(--fs-meta);
+      font-weight: var(--fw-regular);
+      text-transform: none;
+      letter-spacing: normal;
+      margin-left: auto;
+    }
+
+    /* Swatches */
+    .swatch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--space-3); }
+    .swatch {
+      display: flex;
+      gap: var(--space-3);
+      padding: var(--space-3);
+      background: var(--surface-card);
+      border: 1px solid var(--border-panel);
+      border-radius: var(--radius-card);
+    }
+    .swatch__chip {
+      width: 48px; height: 48px;
+      border-radius: var(--radius-button);
+      border: 1px solid var(--border-widget);
+      flex-shrink: 0;
+    }
+    .swatch__chip--round { border-radius: 50%; border: none; }
+    .swatch__name { font-size: var(--fs-body); font-weight: var(--fw-semibold); color: var(--text-primary); }
+    .swatch__var { font-family: var(--font-mono); font-size: var(--fs-badge); color: var(--brand-accent); }
+    .swatch__hex { font-family: var(--font-mono); font-size: var(--fs-badge); color: var(--text-secondary); margin-top: 2px; }
+
+    /* Typography samples */
+    .type-row {
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      gap: var(--space-4);
+      padding: var(--space-3);
+      background: var(--surface-card);
+      border-radius: var(--radius-card);
+      margin-bottom: var(--space-2);
+      align-items: center;
+    }
+    .type-row__label { font-family: var(--font-mono); font-size: var(--fs-badge); color: var(--text-secondary); text-transform: uppercase; letter-spacing: var(--tracking-section); }
+    .type-row__spec { font-family: var(--font-mono); font-size: var(--fs-badge); color: var(--brand-accent); margin-top: 2px; }
+
+    /* Spacing samples */
+    .space-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--space-3); }
+    .space-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      padding: var(--space-3);
+      background: var(--surface-card);
+      border: 1px solid var(--border-panel);
+      border-radius: var(--radius-card);
+    }
+    .space-row__block { background: var(--brand-accent); opacity: 0.6; flex-shrink: 0; }
+    .space-row__info { font-family: var(--font-mono); }
+    .space-row__info strong { font-size: var(--fs-body); color: var(--text-primary); font-weight: var(--fw-bold); display: block; }
+    .space-row__info span { font-size: var(--fs-badge); color: var(--text-secondary); }
+
+    /* Component demo rows */
+    .demo-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: var(--space-4);
+      padding: var(--space-4);
+      background: var(--surface-card);
+      border: 1px solid var(--border-panel);
+      border-radius: var(--radius-card);
+      margin-bottom: var(--space-3);
+    }
+    .demo-item { display: flex; flex-direction: column; gap: var(--space-2); }
+    .demo-item__caption { font-family: var(--font-mono); font-size: var(--fs-badge); color: var(--text-secondary); text-transform: uppercase; letter-spacing: var(--tracking-badge); }
+
+    /* Card demos */
+    .card-demos { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--space-3); }
+
+    /* Motif demos */
+    .motif-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); }
+    .motif-demo {
+      position: relative;
+      background: var(--surface-panel);
+      border: 1px solid var(--border-panel);
+      border-radius: var(--radius-card);
+      padding: var(--space-6);
+      min-height: 200px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .motif-demo__label { position: absolute; bottom: var(--space-2); left: var(--space-2); font-family: var(--font-mono); font-size: var(--fs-badge); color: var(--text-secondary); }
+    .motif-shield { width: 48px; height: 58px; color: var(--text-secondary); opacity: 0.6; }
+    .motif-demo__watermark {
+      position: absolute;
+      top: -16px;
+      right: -16px;
+      width: 120px;
+      height: 120px;
+      opacity: 0.08;
+      color: var(--text-primary);
+    }
+    .motif-pulse { color: var(--brand-accent); animation: pulse 1.5s ease-in-out infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 0.7; } }
+
+    @media (prefers-reduced-motion: reduce) {
+      .motif-pulse { animation: none; opacity: 0.5; }
+    }
+  </style>
+</head>
+<body>
+  <svg style="display:none">
+    <use href="../shared/icons.svg#icon-shield-bolt"/>
+  </svg>
+
+  <div class="wrap">
+    <a href="../index.html" class="back-link">
+      <svg width="12" height="12" viewBox="0 0 16 16" style="transform:rotate(180deg)"><use href="../shared/icons.svg#icon-chevron-right"/></svg>
+      Back to gallery
+    </a>
+    <h1 class="page-title">Vibe<span>Sec</span>&nbsp;Design System</h1>
+    <p class="page-subtitle">Terminal Noir — VS Code webview design language</p>
+    <p class="warn-note">All surfaces map to VS Code CSS variables FIRST. Brand tint layers on top as overlay only.</p>
+
+    <!-- ===== 01 COLOR PALETTE ===== -->
+    <section class="numbered-section">
+      <div class="numbered-section__label">
+        <span>01 ·</span> Color Palette
+        <span class="numbered-section__desc">every swatch maps to a --vscode-* variable</span>
+      </div>
+
+      <div class="t-section" style="margin-bottom: var(--space-2)">Surfaces</div>
+      <div class="swatch-grid">
+        <div class="swatch">
+          <div class="swatch__chip" style="background:#1E1E1E"></div>
+          <div><div class="swatch__name">L0 Canvas</div><div class="swatch__var">--vscode-editor-background</div><div class="swatch__hex">#1E1E1E</div></div>
+        </div>
+        <div class="swatch">
+          <div class="swatch__chip" style="background:#252526"></div>
+          <div><div class="swatch__name">L1 Panel</div><div class="swatch__var">--vscode-sideBar-background</div><div class="swatch__hex">#252526</div></div>
+        </div>
+        <div class="swatch">
+          <div class="swatch__chip" style="background:#2D2D30"></div>
+          <div><div class="swatch__name">L1b Card</div><div class="swatch__var">--vscode-editorWidget-background</div><div class="swatch__hex">#2D2D30</div></div>
+        </div>
+        <div class="swatch">
+          <div class="swatch__chip" style="background:#2A2D2E"></div>
+          <div><div class="swatch__name">L2 Hover</div><div class="swatch__var">--vscode-list-hoverBackground</div><div class="swatch__hex">#2A2D2E</div></div>
+        </div>
+        <div class="swatch">
+          <div class="swatch__chip" style="background:#252526"></div>
+          <div><div class="swatch__name">L3 Overlay</div><div class="swatch__var">--vscode-menu-background</div><div class="swatch__hex">#252526</div></div>
+        </div>
+        <div class="swatch">
+          <div class="swatch__chip" style="background:#3C3C3C"></div>
+          <div><div class="swatch__name">Border</div><div class="swatch__var">--vscode-panel-border</div><div class="swatch__hex">#3C3C3C</div></div>
+        </div>
+        <div class="swatch">
+          <div class="swatch__chip" style="background:#007FD4"></div>
+          <div><div class="swatch__name">Focus Ring</div><div class="swatch__var">--vscode-focusBorder</div><div class="swatch__hex">#007FD4</div></div>
+        </div>
+        <div class="swatch">
+          <div class="swatch__chip" style="background:#0E639C"></div>
+          <div><div class="swatch__name">Button BG</div><div class="swatch__var">--vscode-button-background</div><div class="swatch__hex">#0E639C</div></div>
+        </div>
+      </div>
+
+      <div class="t-section" style="margin: var(--space-5) 0 var(--space-2) 0">Severity Tokens · contributes.colors</div>
+      <div class="swatch-grid">
+        <div class="swatch">
+          <div class="swatch__chip swatch__chip--round" style="background:#F48771"></div>
+          <div><div class="swatch__name">Error</div><div class="swatch__var">vibesec.errorForeground</div><div class="swatch__hex">#F48771 · #E51400 (light)</div></div>
+        </div>
+        <div class="swatch">
+          <div class="swatch__chip swatch__chip--round" style="background:#CCA700"></div>
+          <div><div class="swatch__name">Warning</div><div class="swatch__var">vibesec.warningForeground</div><div class="swatch__hex">#CCA700 · #915100 (light)</div></div>
+        </div>
+        <div class="swatch">
+          <div class="swatch__chip swatch__chip--round" style="background:#75BEFF"></div>
+          <div><div class="swatch__name">Info</div><div class="swatch__var">vibesec.infoForeground</div><div class="swatch__hex">#75BEFF · #306EAD (light)</div></div>
+        </div>
+        <div class="swatch">
+          <div class="swatch__chip swatch__chip--round" style="background:#89D185"></div>
+          <div><div class="swatch__name">Success</div><div class="swatch__var">--vscode-testing-iconPassed</div><div class="swatch__hex">#89D185</div></div>
+        </div>
+      </div>
+
+      <div class="t-section" style="margin: var(--space-5) 0 var(--space-2) 0">Brand Accent · overlay only</div>
+      <div class="swatch" style="max-width:640px">
+        <div class="swatch__chip" style="background: linear-gradient(to bottom, rgba(79,195,247,0.30), transparent 4px, transparent 44px, rgba(79,195,247,0.30) 48px), #2D2D30"></div>
+        <div>
+          <div class="swatch__name">Brand Accent (1px top-border only)</div>
+          <div class="swatch__var">rgba(79, 195, 247, 0.30)</div>
+          <div class="swatch__hex">Used for: card top-borders, sparkline stroke, focus accent — NEVER on surfaces</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 02 TYPOGRAPHY ===== -->
+    <section class="numbered-section">
+      <div class="numbered-section__label">
+        <span>02 ·</span> Typography
+        <span class="numbered-section__desc">--vscode-font-family &middot; --vscode-editor-font-family</span>
+      </div>
+      <div class="type-row">
+        <div><div class="type-row__label">Panel Title</div><div class="type-row__spec">Sans &middot; 14px &middot; 600</div></div>
+        <div class="t-title">VibeSec Settings</div>
+      </div>
+      <div class="type-row">
+        <div><div class="type-row__label">Section Header</div><div class="type-row__spec">Mono &middot; 11px &middot; 700 &middot; 0.08em uppercase</div></div>
+        <div class="t-section">LLM CONFIGURATION</div>
+      </div>
+      <div class="type-row">
+        <div><div class="type-row__label">Body</div><div class="type-row__spec">Sans &middot; 13px &middot; 400</div></div>
+        <div class="t-body">Configure your scanning preferences</div>
+      </div>
+      <div class="type-row">
+        <div><div class="type-row__label">Meta · Timestamp</div><div class="type-row__spec">Mono &middot; 11px &middot; 400</div></div>
+        <div class="t-meta">14:32  ·  Apr 4, 2026  ·  2m ago</div>
+      </div>
+      <div class="type-row">
+        <div><div class="type-row__label">Code</div><div class="type-row__spec">Mono &middot; 12px &middot; 400</div></div>
+        <div class="t-code">def get_user(name): return query</div>
+      </div>
+      <div class="type-row">
+        <div><div class="type-row__label">Badge</div><div class="type-row__spec">Sans &middot; 10px &middot; 700 &middot; 0.04em uppercase</div></div>
+        <div><span class="badge badge--error">ERROR</span></div>
+      </div>
+      <div class="type-row">
+        <div><div class="type-row__label">Stat Number</div><div class="type-row__spec">Mono &middot; 24px &middot; 700 &middot; -0.02em</div></div>
+        <div class="t-stat">47</div>
+      </div>
+    </section>
+
+    <!-- ===== 03 SPACING ===== -->
+    <section class="numbered-section">
+      <div class="numbered-section__label">
+        <span>03 ·</span> Spacing & Grid
+        <span class="numbered-section__desc">4px base unit</span>
+      </div>
+      <div class="space-grid">
+        <div class="space-row"><div class="space-row__block" style="width:4px;height:4px"></div><div class="space-row__info"><strong>4px</strong><span>base · micro-gap</span></div></div>
+        <div class="space-row"><div class="space-row__block" style="width:8px;height:8px"></div><div class="space-row__info"><strong>8px</strong><span>card gap · small padding</span></div></div>
+        <div class="space-row"><div class="space-row__block" style="width:12px;height:12px"></div><div class="space-row__info"><strong>12px</strong><span>card padding · row gap</span></div></div>
+        <div class="space-row"><div class="space-row__block" style="width:16px;height:16px"></div><div class="space-row__info"><strong>16px</strong><span>accent card padding</span></div></div>
+        <div class="space-row"><div class="space-row__block" style="width:24px;height:24px"></div><div class="space-row__info"><strong>24px</strong><span>panel margin · large gap</span></div></div>
+        <div class="space-row"><div class="space-row__block" style="width:32px;height:32px"></div><div class="space-row__info"><strong>32px</strong><span>section divider</span></div></div>
+      </div>
+    </section>
+
+    <!-- ===== 04 COMPONENTS ===== -->
+    <section class="numbered-section">
+      <div class="numbered-section__label">
+        <span>04 ·</span> Atomic Components
+        <span class="numbered-section__desc">Buttons &middot; Badges &middot; Inputs &middot; Toggles &middot; Dropdowns</span>
+      </div>
+
+      <div class="demo-row">
+        <div class="demo-item"><button class="btn btn--primary">Scan File</button><div class="demo-item__caption">Primary</div></div>
+        <div class="demo-item"><button class="btn btn--primary" style="background:var(--button-hover)">Scan File</button><div class="demo-item__caption">Primary :hover</div></div>
+        <div class="demo-item"><button class="btn btn--secondary">Cancel</button><div class="demo-item__caption">Secondary</div></div>
+        <div class="demo-item"><button class="btn btn--ghost">Show</button><div class="demo-item__caption">Ghost / Link</div></div>
+        <div class="demo-item"><button class="btn btn--danger">Delete</button><div class="demo-item__caption">Danger</div></div>
+        <div class="demo-item"><button class="btn btn--primary" disabled>Disabled</button><div class="demo-item__caption">Disabled</div></div>
+      </div>
+
+      <div class="demo-row">
+        <span class="badge badge--error">ERROR</span>
+        <span class="badge badge--warning">WARNING</span>
+        <span class="badge badge--info">INFO</span>
+        <span class="badge badge--success">CONNECTED</span>
+        <span class="badge badge--neutral">47</span>
+        <span class="badge badge--outline">CWE-89</span>
+        <span class="badge badge--outline">PYTHON</span>
+        <span class="badge badge--outline">HIGH CONFIDENCE</span>
+      </div>
+
+      <div class="demo-row" style="gap:var(--space-3); align-items:flex-start">
+        <div class="demo-item" style="width:240px"><input class="input" placeholder="/usr/local/bin/semgrep" value="/usr/local/bin/semgrep" /><div class="demo-item__caption">Text input</div></div>
+        <div class="demo-item" style="width:240px"><div class="input-group"><input class="input" type="password" value="sk-abcdef123456789" /><button class="input-group__action">Show</button></div><div class="demo-item__caption">Password input</div></div>
+        <div class="demo-item" style="width:240px"><input class="input" value="invalid-key" aria-invalid="true" /><div class="input-help input-help--error">API key format is invalid</div><div class="demo-item__caption">Error state</div></div>
+      </div>
+
+      <div class="demo-row" style="gap: var(--space-6)">
+        <label class="toggle">
+          <input type="checkbox" />
+          <span class="toggle__track"><span class="toggle__knob"></span></span>
+          <span class="toggle__label">Auto-scan on save</span>
+        </label>
+        <label class="toggle">
+          <input type="checkbox" checked />
+          <span class="toggle__track"><span class="toggle__knob"></span></span>
+          <span class="toggle__label">Inline decorations</span>
+        </label>
+      </div>
+    </section>
+
+    <!-- ===== 05 CARDS ===== -->
+    <section class="numbered-section">
+      <div class="numbered-section__label">
+        <span>05 ·</span> Card Variants
+        <span class="numbered-section__desc">Standard · Accent · Stat · Code Block</span>
+      </div>
+      <div class="card-demos">
+        <div>
+          <div class="card">
+            <div class="t-meta" style="font-family:var(--font-sans); font-size:var(--fs-body); font-weight:var(--fw-semibold); color:var(--text-primary); margin-bottom:4px">Semgrep Path</div>
+            <div class="t-code">/usr/local/bin/semgrep</div>
+          </div>
+          <div class="demo-item__caption" style="margin-top:var(--space-2)">Standard Card</div>
+        </div>
+        <div>
+          <div class="card card--accent" data-severity="error">
+            <div style="font-size:var(--fs-body); font-weight:var(--fw-semibold); color:var(--text-primary); margin-bottom:4px">SQL injection via concatenation</div>
+            <div class="t-meta">CMD-INJECTION  ·  Line 5</div>
+          </div>
+          <div class="demo-item__caption" style="margin-top:var(--space-2)">Accent Card · severity="error"</div>
+        </div>
+        <div>
+          <div class="card card--stat">
+            <span class="t-stat">47</span>
+            <span class="t-section">total scans</span>
+          </div>
+          <div class="demo-item__caption" style="margin-top:var(--space-2)">Stat Card</div>
+        </div>
+      </div>
+
+      <div style="margin-top: var(--space-4)">
+        <div class="code-block">
+          <div class="code-block__row"><span class="code-block__ln">11</span><span class="code-block__code">def get_user(name):</span></div>
+          <div class="code-block__row code-block__row--highlight"><span class="code-block__ln">12</span><span class="code-block__code">    query = "SELECT * FROM users WHERE name='" + name + "'"</span></div>
+          <div class="code-block__row"><span class="code-block__ln">13</span><span class="code-block__code">    cursor.execute(query)</span></div>
+        </div>
+        <div class="demo-item__caption" style="margin-top:var(--space-2)">Code Block with vulnerable line highlighted (shadow-inset severity stripe)</div>
+      </div>
+    </section>
+
+    <!-- ===== 06 SHIELD+BOLT MOTIF ===== -->
+    <section class="numbered-section">
+      <div class="numbered-section__label">
+        <span>06 ·</span> Shield + Bolt Motif
+        <span class="numbered-section__desc">used in exactly 3 places</span>
+      </div>
+      <div class="motif-grid">
+        <div class="motif-demo">
+          <svg class="motif-shield" viewBox="0 0 24 24"><use href="../shared/icons.svg#icon-shield-bolt"/></svg>
+          <div style="margin-top:var(--space-3); text-align:center">
+            <div style="font-weight:var(--fw-semibold); color:var(--text-primary); font-size:var(--fs-body)">No scan has run yet</div>
+            <div class="t-meta" style="font-family:var(--font-sans); font-size:var(--fs-body); color:var(--text-secondary); margin-top:4px">Ready when you are.</div>
+          </div>
+          <div class="motif-demo__label">1. Empty State</div>
+        </div>
+
+        <div class="motif-demo" style="justify-content:flex-start; align-items:flex-start">
+          <svg class="motif-demo__watermark" viewBox="0 0 24 24"><use href="../shared/icons.svg#icon-shield-bolt"/></svg>
+          <div class="t-title">VibeSec Settings</div>
+          <div class="t-section" style="margin-top:var(--space-3)">LLM CONFIGURATION</div>
+          <div class="motif-demo__label">2. Header Watermark (8%)</div>
+        </div>
+
+        <div class="motif-demo">
+          <svg class="motif-shield motif-pulse" viewBox="0 0 24 24" style="color:var(--brand-accent)"><use href="../shared/icons.svg#icon-shield-bolt"/></svg>
+          <div style="margin-top:var(--space-3); text-align:center">
+            <div style="color:var(--brand-accent); font-weight:var(--fw-semibold); font-size:var(--fs-body)">Scanning insecure.py…</div>
+            <div class="t-meta" style="font-family:var(--font-sans); font-size:var(--fs-meta); color:var(--text-secondary); margin-top:4px">opacity pulses 0.3 ↔ 0.7 (1.5s ease)</div>
+          </div>
+          <div class="motif-demo__label">3. Loading State</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== ARCH NOTE ===== -->
+    <section class="numbered-section">
+      <div style="background:var(--surface-card); border:1px solid var(--border-panel); border-radius:var(--radius-card); padding:var(--space-4); position:relative; overflow:hidden">
+        <div style="position:absolute;top:0;left:0;right:0;height:1px;background:var(--severity-warning);opacity:0.5"></div>
+        <div style="font-family:var(--font-mono);font-size:var(--fs-badge);font-weight:var(--fw-bold);text-transform:uppercase;letter-spacing:var(--tracking-section);color:var(--severity-warning);margin-bottom:var(--space-2)">Architecture Note</div>
+        <p style="font-size:var(--fs-body); color:var(--text-primary); margin:0; line-height:1.6">
+          The <code style="font-family:var(--font-mono); background:var(--surface-code-well); padding:2px 6px; border-radius:3px; color:var(--brand-accent)">@vscode/webview-ui-toolkit</code> was archived in January 2025. These mockups build on plain web standards &mdash; no toolkit dependency.
+        </p>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

@@ -1,48 +1,22 @@
-# .vibesec-custom.yaml — custom rules example
+# .vibesec-custom.yaml — example policy using only custom inline rules (no presets)
 # Rename to .vibesec.yaml at your workspace root to use it.
-# This example uses NO preset packs — custom rules only.
-
-presets: []   # intentionally empty; custom rules cover everything needed
 
 severity:
   minSeverity: info
-  overrides:
-    vibesec.no-eval: error   # promote this rule from WARNING to ERROR
 
 rules:
-  - id: vibesec.no-eval
-    message: "eval() executes arbitrary code and is a serious security risk."
-    severity: WARNING
-    languages: [javascript, typescript]
-    pattern: eval(...)
-    metadata:
-      category: security
-      cwe: "CWE-95"
-      confidence: HIGH
-
-  - id: vibesec.no-md5
-    message: "MD5 is cryptographically broken. Use SHA-256 or better."
+  - id: my-team.no-print-statements
+    message: "Remove debug print() calls before shipping to production."
     severity: WARNING
     languages: [python]
-    patterns:
-      - pattern: hashlib.md5(...)
+    pattern: print(...)
     metadata:
-      category: security
-      cwe: "CWE-327"
-      confidence: HIGH
+      category: maintainability
 
-  - id: vibesec.subprocess-shell-true
-    message: "subprocess with shell=True is vulnerable to command injection."
-    severity: ERROR
-    languages: [python]
-    pattern: subprocess.$FUNC(..., shell=True, ...)
+  - id: my-team.no-hardcoded-localhost
+    message: "Hardcoded localhost URL detected. Use a config variable instead."
+    severity: WARNING
+    languages: [python, javascript, typescript]
+    pattern: "\"http://localhost\""
     metadata:
-      category: security
-      cwe: "CWE-78"
-      confidence: HIGH
-
-files:
-  exclude:
-    - "**/node_modules/**"
-    - "**/*.test.ts"
-    - "**/*.spec.ts"
+      category: configuration

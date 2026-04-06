@@ -1,0 +1,125 @@
+/* ==========================================================================
+   VibeSec Design Tokens
+   --------------------------------------------------------------------------
+   Architecture: VS Code variables FIRST, brand tint as overlay only.
+   When embedded in a real VS Code webview, --vscode-* tokens take over.
+   When viewed standalone (in a browser), fallback hex values render.
+   ========================================================================== */
+
+:root {
+  /* ----- SURFACES: layered depth via VS Code variables ----- */
+  --surface-canvas:     var(--vscode-editor-background,       #1E1E1E); /* L0 */
+  --surface-panel:      var(--vscode-sideBar-background,      #252526); /* L1 */
+  --surface-card:       var(--vscode-editorWidget-background, #2D2D30); /* L1b */
+  --surface-hover:      var(--vscode-list-hoverBackground,    #2A2D2E); /* L2 */
+  --surface-overlay:    var(--vscode-menu-background,         #252526); /* L3 */
+  --surface-code-well:  var(--vscode-editor-background,       #1E1E1E);
+
+  /* ----- BORDERS ----- */
+  --border-panel:    var(--vscode-panel-border,         #3C3C3C);
+  --border-widget:   var(--vscode-widget-border,        #454545);
+  --border-input:    var(--vscode-input-border,         #3C3C3C);
+  --border-focus:    var(--vscode-focusBorder,          #007FD4);
+  --border-contrast: var(--vscode-contrastBorder,       transparent);
+
+  /* ----- TEXT ----- */
+  --text-primary:     var(--vscode-foreground,              #CCCCCC);
+  --text-secondary:   var(--vscode-descriptionForeground,   #858585);
+  --text-disabled:    var(--vscode-disabledForeground,      #5A5A5A);
+  --text-error:       var(--vscode-errorForeground,         #F48771);
+  --text-link:        var(--vscode-textLink-foreground,     #4FC3F7);
+  --text-link-active: var(--vscode-textLink-activeForeground, #4FC3F7);
+
+  /* ----- BUTTONS (VS Code-style) ----- */
+  --button-bg:            var(--vscode-button-background,            #0E639C);
+  --button-fg:            var(--vscode-button-foreground,            #FFFFFF);
+  --button-hover:         var(--vscode-button-hoverBackground,       #1177BB);
+  --button-secondary-bg:  var(--vscode-button-secondaryBackground,   #3A3D41);
+  --button-secondary-fg:  var(--vscode-button-secondaryForeground,   #CCCCCC);
+  --button-secondary-hover: var(--vscode-button-secondaryHoverBackground, #45494E);
+
+  /* ----- INPUTS ----- */
+  --input-bg:         var(--vscode-input-background,           #3C3C3C);
+  --input-fg:         var(--vscode-input-foreground,           #CCCCCC);
+  --input-placeholder: var(--vscode-input-placeholderForeground, #858585);
+
+  /* ----- SEVERITY TOKENS (from contributes.colors) ----- */
+  --severity-error:   var(--vscode-vibesec-errorForeground,   #F48771);
+  --severity-warning: var(--vscode-vibesec-warningForeground, #CCA700);
+  --severity-info:    var(--vscode-vibesec-infoForeground,    #75BEFF);
+  --severity-success: var(--vscode-testing-iconPassed,        #89D185);
+
+  /* ----- BRAND ACCENT (overlay only — NEVER on surfaces) ----- */
+  --brand-accent:        #4FC3F7;
+  --brand-accent-line:   rgba(79, 195, 247, 0.30);  /* card top-borders */
+  --brand-accent-tint:   rgba(79, 195, 247, 0.15);  /* tag backgrounds, sparkline fill */
+  --brand-accent-subtle: rgba(79, 195, 247, 0.08);  /* very soft hover tints */
+
+  /* ----- SPACING (4px base) ----- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* ----- RADII ----- */
+  --radius-button: 3px;
+  --radius-badge:  3px;
+  --radius-card:   4px;
+  --radius-input:  3px;
+
+  /* ----- TYPOGRAPHY ----- */
+  --font-sans: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+  --font-mono: var(--vscode-editor-font-family, "JetBrains Mono", "Fira Code", "SF Mono", Menlo, Consolas, monospace);
+
+  --fs-badge:      10px;
+  --fs-meta:       11px;
+  --fs-section:    11px;  /* wide-tracked uppercase */
+  --fs-body:       13px;
+  --fs-title:      14px;
+  --fs-code:       12px;
+  --fs-stat-large: 24px;
+
+  --fw-regular:   400;
+  --fw-semibold:  600;
+  --fw-bold:      700;
+
+  --lh-tight:  1.2;
+  --lh-body:   1.5;
+
+  --tracking-section:  0.08em;  /* wide-tracked mono uppercase */
+  --tracking-badge:    0.04em;
+  --tracking-stat:    -0.02em;
+
+  /* ----- SHADOWS (overlays only) ----- */
+  --shadow-overlay: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-modal:   0 8px 24px rgba(0, 0, 0, 0.5);
+
+  /* ----- TRANSITIONS ----- */
+  --transition-fast: 120ms ease;
+  --transition-base: 180ms ease;
+
+  /* ----- LAYOUT ----- */
+  --panel-max-width: 680px;
+  --panel-narrow:    300px;
+}
+
+/* High Contrast theme adjustments */
+@media (forced-colors: active) {
+  :root {
+    --border-panel:   CanvasText;
+    --border-widget:  CanvasText;
+    --border-focus:   Highlight;
+    --border-contrast: CanvasText;
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --transition-fast: 0ms;
+    --transition-base: 0ms;
+  }
+}

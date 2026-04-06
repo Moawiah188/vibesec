@@ -4,10 +4,177 @@ All notable changes to VibeSec are documented here.
 
 ---
 
-## [0.2.0] — 2026-04-04
+## [0.3.0] — Sprint 3 "Interface"
 
 ### Overview
-This release adds a full policy configuration system, a dedicated Findings side panel, and a bundled ruleset — turning VibeSec from a basic scanner into a configurable, team-ready security tool.
+Full UI/UX sprint. VibeSec gets its own activity bar icon, a **Scan panel** (multi-select file tree for choosing what to scan), a redesigned Findings panel with **folder grouping** (Folder → File → Finding → Detail) and severity-first visual hierarchy, a full accessibility pass, three user-configurable settings, auto-scan-on-save, a first-install walkthrough, and a Copy Description action. A UI style guide is included to keep future sprints consistent.
+
+---
+
+### Added
+
+#### Activity Bar Icon
+- VibeSec now has its own dedicated icon in the VS Code activity bar — a shield with a lightning bolt — separate from the Explorer sidebar
+- New `media/vibesec-icon.svg` — single-path SVG with `fill="currentColor"` and `fill-rule="evenodd"` so VS Code can mask it correctly in dark, light, and high-contrast themes
+- New `viewsContainers.activitybar` entry in `package.json` with id `vibesec`
+- The Findings panel (`vibesec.findingsPanel`) is now hosted inside this dedicated container instead of the Explorer
+
+#### Panel Title Bar Buttons
+- **Scan** (`$(play)`) and **Reload Policy** (`$(refresh)`) buttons now appear directly in the Findings panel title bar — no need to open the command palette for the most common actions
+- Wired via `contributes.menus["view/title"]` scoped to `view == vibesec.findingsPanel`
+
+#### Scan Panel — Multi-Select File Tree
+- New `vibesec.scanPanel` view in the VibeSec activity bar container, alongside Findings
+- New `src/scanProvider.ts` — TreeDataProvider listing the workspace as a collapsible file tree with theme-aware icons
+- Native `canSelectMany: true` — click to select, Ctrl/Cmd+click to add, Shift+click for range
+- Auto-filters noise directories (node_modules, .git, dist, build, etc.) and identifies 25+ scannable file extensions
+- `vibesec.scanSelected` command — title-bar play button reads selection and runs scan
+- `vibesec.refreshScanTree` command — manual rebuild + auto-rebuild via filesystem watcher on create/delete
+
+#### Findings Panel — Folder Grouping
+- Tree hierarchy is now **Folder → File → Finding → FindingDetail** (was File → Finding → FindingDetail)
+- Folder nodes show workspace-relative paths with severity-tinted icons
+- Files within folders sorted by finding count then alphabetically
+
+#### Declarative Empty / Error States (`viewsWelcome`)
+- All three non-findings states are now rendered via `contributes.viewsWelcome` in `package.json` with clickable action buttons, replacing the plain text `treeView.message` strings from Sprint 2
+- **`empty`** (no scan yet): "No scan has run yet." with `[$(play) Scan Current File]` and `[$(gear) Open Policy File]` buttons
+- **`noFindings`** (clean scan): `$(pass-filled)` icon + "No security issues found. Your last scan came back clean."
+- **`error`** (scan failed): `$(error)` icon + "Scan encountered an error." + `[$(settings-gear) Open VibeSec Settings]` deep-link
+- State is driven by the `vibesec.panelState` context key, set via `vscode.commands.executeCommand("setContext", ...)` in `extension.ts` on every state transition
+
+#### Redesigned Findings Tree — Compact Primary Row
+- Finding nodes are now **two-level**: a compact primary row and an expandable description child
+- **Primary row** (`vibesecFinding`): `Line N` as the label, `CATEGORY` as the dimmed description — the most important identifiers are visible at a glance without reading the full message
+- **Description child** (`vibesecFindingDetail`): full finding message, expanded on demand — keeps the panel scannable when there are many findings
+- Clicking the primary row still navigates to the finding in the editor; clicking the arrow expands the description
+
+#### Copy Description
+- New `vibesec.copyDescription` command registered in `extension.ts`
+- A `$(copy)` **inline button** appears on the description child row when hovered — one click copies the full finding message to the clipboard
+- Also available via right-click → **Copy Description** context menu on description nodes
+- Both wired via `contributes.menus["view/item/inline"]` and `["view/item/context"]` scoped to `viewItem == vibesecFindingDetail`
+
+#### Severity-Colored Icons
+- All severity icons (`error`, `warning`, `info`) are now rendered with `vscode.ThemeColor` applied to their `ThemeIcon` — the icon tint matches the severity
+- Three custom color tokens contributed via `contributes.colors`:
+  - `vibesec.errorForeground` — defaults match VS Code's `errorForeground` (#F48771 dark / #E51400 light)
+  - `vibesec.warningForeground` — matches `editorWarning.foreground` (#CCA700 dark / #915100 light)
+  - `vibesec.infoForeground` — matches `editorInfo.foreground` (#75BEFF dark / #306EAD light)
+- File node icons (`file-code`) are tinted with the **worst severity** color in that file — a file with any error shows a red icon; a warning-only file shows yellow
+- Colors are consistent with VS Code's native diagnostic squiggles by design
+
+#### Findings Sorting
+- Findings within each file are now sorted: **errors first → warnings → info → then by ascending line number** within each severity tier
+- Files are sorted by **most findings first**, then alphabetically by filename — the noisiest files surface to the top automatically
+
+#### Rule Category Labels
+- Finding primary rows show a short uppercase category tag derived from the rule ID (e.g. `vibesec.command-injection-os-system` → `COMMAND-INJECTION`, `vibesec.weak-hash-md5-python` → `WEAK-HASH`)
+- Implemented in `formatRuleCategory()` in `findingsProvider.ts` — strips the `vibesec.` prefix and takes the first two dash-segments
+
+#### File Node Directory Context
+- File nodes now show the parent directory name in their description: e.g. `test-samples  ·  4 issues` instead of just `4 issues`
+- Helps distinguish files with the same name in different directories when scanning across a project
+
+#### Richer Tooltips
+- Description child tooltips include a bold severity header (`$(error) **ERROR — vibesec.rule-id**`), the full message, and a **language-tagged code block** for the snippet — Python snippets get Python syntax highlighting, TypeScript gets TypeScript, etc.
+- Severity is stated in plain text in the tooltip header, not conveyed by color alone
+
+#### Accessibility — `accessibilityInformation`
+- Both file nodes and finding nodes now set `item.accessibilityInformation` so screen readers announce useful descriptions instead of raw label/description strings:
+  - File node: `"insecure.py, 4 issues, worst severity error"`
+  - Finding node: `"error, line 12, COMMAND-INJECTION"`
+  - Description child: `"Description: Command injection via subprocess.run(shell=True)..."`
+
+#### Settings (`contributes.configuration`)
+Three new user-configurable settings, accessible from **Settings → VibeSec**:
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `vibesec.semgrepPath` | string | `"semgrep"` | Path to the Semgrep binary for non-standard installs |
+| `vibesec.autoScanOnSave` | boolean | `false` | Auto-scan on file save — opt-in only |
+| `vibesec.showInlineDecorations` | boolean | `true` | Toggle inline squiggles on/off without disabling the panel |
+
+- `semgrepPath` is scoped `machine-overridable` (can be set per-machine or per-workspace)
+- `autoScanOnSave` and `showInlineDecorations` are scoped `resource` (can vary per workspace folder)
+
+#### Auto-Scan on Save
+- New `vscode.workspace.onDidSaveTextDocument` listener in `extension.ts`
+- Only triggers when `vibesec.autoScanOnSave` is `true` (off by default) and the saved document is the currently active file
+- Re-reads the setting on every save event — toggling the setting takes effect immediately without reloading VS Code
+- Reuses the existing `vibesec.scanCurrentFile` command rather than duplicating scan logic
+
+#### Configurable Inline Decorations Toggle
+- When `vibesec.showInlineDecorations` is `false`, the scan command calls `diagnosticCollection.delete()` instead of `set()` — the Findings panel still populates normally, but no squiggles appear in the editor
+
+#### Configurable Semgrep Path
+- `scanFile()` in `scanner.ts` now accepts an optional `semgrepPath` parameter (default: `"semgrep"`) passed through to `execFile()`
+- The `extension.ts` scan command reads `vibesec.semgrepPath` from settings and forwards it on every scan
+
+#### First-Install Onboarding Walkthrough
+- New `contributes.walkthroughs` entry in `package.json` — appears in VS Code's **Help → Get Started** tab on first install
+- Three guided steps:
+  1. **Install Semgrep** — pip/brew install instructions, link to open terminal (no completion event — can't detect install)
+  2. **Run your first scan** — auto-checks when the user runs `vibesec.scanCurrentFile` for the first time
+  3. **Customize with a policy file** — auto-checks when the user runs `vibesec.openPolicyFile`
+- Step content sourced from `media/walkthrough/install.md`, `scan.md`, and `policy.md`
+- Walkthrough is re-openable anytime from the Welcome tab or `Welcome: Open Walkthrough` in the command palette — does not appear on every launch
+
+#### UI Style Guide (`UI_STYLE_GUIDE.md`)
+- New `UI_STYLE_GUIDE.md` at the repo root documenting the complete design system for future sprints:
+  - Color tokens and their WCAG rationale
+  - Icon system (codicons + custom SVG)
+  - Typography conventions (label vs. description vs. tooltip)
+  - Sorting rules
+  - Accessibility requirements (contrast, screen-reader, keyboard, color-independence)
+  - Empty/error state patterns
+  - Settings reference
+  - Guidelines for extending the design system in future sprints
+
+---
+
+### Changed
+
+#### `package.json`
+- Version bumped `0.2.0` → `0.3.0`
+- All commands now have `"category": "VibeSec"` — they group cleanly in the command palette
+- Added `vibesec.scanPanel` view, `scanSelected`, `refreshScanTree`, `copyDescription` commands
+- `views` container changed from `"explorer"` to `"vibesec"` activity bar with dedicated icon
+- Added `viewsWelcome` entries, `commandPalette` hiding for internal commands, color contributions, configuration settings, walkthrough
+
+#### `src/findingsProvider.ts`
+- Added `FolderNode` — tree hierarchy is now Folder → File → Finding → FindingDetail
+- `severityIcon()` applies `vscode.ThemeColor` to each `ThemeIcon`
+- Sorting: error → warning → info → line number within files; most findings first across files
+- File icons tinted with worst severity; folder icons tinted similarly
+- Compact primary row (Line N + category) with expandable description child
+- `getViewMessage()` returns `undefined` — `viewsWelcome` handles all empty states
+
+#### `src/extension.ts`
+- New `runScanOnFile()` shared helper — `scanCurrentFile` and `scanSelected` funnel through it
+- New `ScanProvider` + scan tree view with `canSelectMany: true`
+- Filesystem watcher keeps scan tree in sync
+- `updatePanel()` drives `setContext` for `viewsWelcome` when-clauses
+- Reads `semgrepPath`, `autoScanOnSave`, `showInlineDecorations` from settings
+
+#### `src/scanner.ts`
+- `scanFile()` signature extended with an optional `semgrepPath: string = "semgrep"` parameter
+- `execFile("semgrep", ...)` replaced with `execFile(semgrepPath, ...)` — the only line changed
+
+---
+
+### Accessibility Notes
+- Severity is communicated through **three independent layers**: icon shape (circle-X / triangle / circle-i), text label (category + line), and color — color is never the sole indicator
+- Custom color tokens inherit VS Code's WCAG AA-compliant diagnostic color defaults for dark, light, and both high-contrast themes
+- `accessibilityInformation` is set on all tree nodes
+- Keyboard navigation works natively via VS Code's TreeView (arrow keys, Enter to activate, F6 to focus panel toolbar)
+
+---
+
+## [0.2.0] — Sprint 2 "Policy"
+
+### Overview
+Adds a full policy configuration system, a dedicated Findings side panel, and a bundled ruleset — turning VibeSec from a basic scanner into a configurable, team-ready security tool.
 
 ---
 
@@ -101,7 +268,7 @@ This release adds a full policy configuration system, a dedicated Findings side 
 
 ---
 
-## [0.1.0] — Sprint 1 Initial Release
+## [0.1.0] — Sprint 1 "Scan"
 
 ### Added
 - `src/extension.ts` — VS Code entry point; registers `vibesec.scanCurrentFile` command, shows inline squiggles via `DiagnosticCollection`
