@@ -40,7 +40,7 @@ No accounts. No cloud. No telemetry. Everything runs on your machine.
 | Copy Description button | ✅ v0.3.0 |
 | Configurable settings | ✅ v0.3.0 |
 | First-install walkthrough | ✅ v0.3.0 |
-| Local scan history log | 🔜 Next |
+| More stuff | 🔜 Coming next |
 
 ---
 
