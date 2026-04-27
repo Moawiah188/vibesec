@@ -2,7 +2,7 @@
   "name": "vibesec",
   "displayName": "VibeSec",
   "description": "AI-assisted security scanner for vibe coders",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -50,6 +50,51 @@
         "title": "Refresh File Tree",
         "category": "VibeSec",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "vibesec.scanWorkspace",
+        "title": "Scan Whole Project",
+        "category": "VibeSec",
+        "icon": "$(run-all)"
+      },
+      {
+        "command": "vibesec.setApiKey",
+        "title": "Set API Key",
+        "category": "VibeSec"
+      },
+      {
+        "command": "vibesec.clearApiKey",
+        "title": "Clear API Key",
+        "category": "VibeSec"
+      },
+      {
+        "command": "vibesec.testApiKey",
+        "title": "Test API Key",
+        "category": "VibeSec"
+      },
+      {
+        "command": "vibesec.generatePrompts",
+        "title": "Generate Prompts",
+        "category": "VibeSec",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "vibesec.copyPromptForVuln",
+        "title": "Copy Prompt for Vulnerability",
+        "category": "VibeSec",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "vibesec.copyPromptForFile",
+        "title": "Copy Prompt for File",
+        "category": "VibeSec",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "vibesec.copyPromptForAll",
+        "title": "Copy Prompt for All Findings",
+        "category": "VibeSec",
+        "icon": "$(comment-discussion)"
       }
     ],
     "viewsContainers": {
@@ -105,9 +150,14 @@
           "group": "navigation@1"
         },
         {
-          "command": "vibesec.refreshScanTree",
+          "command": "vibesec.scanWorkspace",
           "when": "view == vibesec.scanPanel",
           "group": "navigation@2"
+        },
+        {
+          "command": "vibesec.refreshScanTree",
+          "when": "view == vibesec.scanPanel",
+          "group": "navigation@3"
         },
         {
           "command": "vibesec.scanCurrentFile",
@@ -115,9 +165,19 @@
           "group": "navigation@1"
         },
         {
+          "command": "vibesec.generatePrompts",
+          "when": "view == vibesec.findingsPanel && vibesec.panelState == 'findings'",
+          "group": "navigation@2"
+        },
+        {
+          "command": "vibesec.copyPromptForAll",
+          "when": "view == vibesec.findingsPanel && vibesec.panelState == 'findings'",
+          "group": "navigation@3"
+        },
+        {
           "command": "vibesec.reloadPolicy",
           "when": "view == vibesec.findingsPanel",
-          "group": "navigation@2"
+          "group": "navigation@4"
         }
       ],
       "view/item/inline": [
@@ -125,12 +185,32 @@
           "command": "vibesec.copyDescription",
           "when": "view == vibesec.findingsPanel && viewItem == vibesecFindingDetail",
           "group": "inline@1"
+        },
+        {
+          "command": "vibesec.copyPromptForVuln",
+          "when": "view == vibesec.findingsPanel && viewItem == vibesecFinding",
+          "group": "inline@1"
+        },
+        {
+          "command": "vibesec.copyPromptForFile",
+          "when": "view == vibesec.findingsPanel && viewItem == vibesecFile",
+          "group": "inline@1"
         }
       ],
       "view/item/context": [
         {
           "command": "vibesec.copyDescription",
           "when": "view == vibesec.findingsPanel && viewItem == vibesecFindingDetail",
+          "group": "vibesec@1"
+        },
+        {
+          "command": "vibesec.copyPromptForVuln",
+          "when": "view == vibesec.findingsPanel && viewItem == vibesecFinding",
+          "group": "vibesec@1"
+        },
+        {
+          "command": "vibesec.copyPromptForFile",
+          "when": "view == vibesec.findingsPanel && viewItem == vibesecFile",
           "group": "vibesec@1"
         }
       ],
@@ -141,6 +221,14 @@
         },
         {
           "command": "vibesec.goToFinding",
+          "when": "false"
+        },
+        {
+          "command": "vibesec.copyPromptForVuln",
+          "when": "false"
+        },
+        {
+          "command": "vibesec.copyPromptForFile",
           "when": "false"
         }
       ]
@@ -197,6 +285,42 @@
           "default": true,
           "description": "Show inline diagnostic squiggles for VibeSec findings directly in the editor.",
           "scope": "resource"
+        },
+        "vibesec.fileExtensions": {
+          "type": "string",
+          "default": ".py .pyi .js .jsx .mjs .cjs .ts .tsx .java .go .rb .php .c .h .cpp .hpp .cc .cs .rs .swift .kt .kts .scala .yaml .yml .json .html .htm .sh .bash",
+          "description": "Space-separated list of file extensions VibeSec will scan (e.g. \".py .ts .go\"). Files outside this list are skipped during multi-target scans and shown as \"not scannable\" in the Scan panel.",
+          "scope": "resource"
+        },
+        "vibesec.llmProvider": {
+          "type": "string",
+          "enum": ["openai", "anthropic", "gemini"],
+          "enumDescriptions": [
+            "OpenAI (GPT models). Requires an OpenAI API key.",
+            "Anthropic (Claude models). Requires an Anthropic API key.",
+            "Google Gemini. Requires a Google AI Studio API key."
+          ],
+          "default": "anthropic",
+          "description": "Which AI provider to use when generating fix prompts. Set the matching API key via the command \"VibeSec: Set API Key\".",
+          "scope": "resource"
+        },
+        "vibesec.llmModel": {
+          "type": "string",
+          "default": "claude-haiku-4-5",
+          "description": "The model id used for prompt generation. Defaults to the cheapest tier for the chosen provider (gpt-5-nano / claude-haiku-4-5 / gemini-2.5-flash-lite). When you switch providers, leave this blank to auto-pick the right default for that provider.",
+          "scope": "resource"
+        },
+        "vibesec.promptMode": {
+          "type": "string",
+          "enum": ["perFile", "perVulnerability", "perProject"],
+          "enumDescriptions": [
+            "One prompt per file, batching every finding in that file. Cheapest meaningful option — recommended.",
+            "One prompt per finding, plus rolled-up per-file and project-level prompts. Most thorough, most expensive.",
+            "A single prompt covering every finding in the scan. Cheapest possible (one API call) but the AI gets a large context."
+          ],
+          "default": "perFile",
+          "description": "How VibeSec should slice prompts when you click \"Generate Prompts\". You can change this any time without re-scanning.",
+          "scope": "resource"
         }
       }
     },
@@ -226,6 +350,12 @@
             "description": "Drop a .vibesec.yaml in your project to control which rules run.\n\n[$(gear) Create Policy File](command:vibesec.openPolicyFile)",
             "media": { "markdown": "media/walkthrough/policy.md" },
             "completionEvents": ["onCommand:vibesec.openPolicyFile"]
+          },
+          {
+            "id": "vibesec.step.prompts",
+            "title": "Hook up an AI provider for fix prompts",
+            "description": "Add an API key (OpenAI, Anthropic, or Gemini) and VibeSec can generate copy-paste fix prompts for every finding.\n\n[$(key) Set API Key](command:vibesec.setApiKey)",
+            "completionEvents": ["onCommand:vibesec.setApiKey"]
           }
         ]
       }

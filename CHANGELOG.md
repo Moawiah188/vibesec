@@ -4,6 +4,111 @@ All notable changes to VibeSec are documented here.
 
 ---
 
+## [0.4.0] — Sprint 4 "Prompts"
+
+### Overview
+Sprint 4 unlocks two major capabilities: **multi-target scanning** (scan multiple files, folders, or the entire project in one go) and **AI fix prompts** (generate copy-paste instructions that tell an AI assistant exactly how to fix each finding). API keys are stored securely using VS Code's built-in secret storage — nothing is written to disk or settings files.
+
+---
+
+### Added
+
+#### Multi-Target Scanning
+- **Scan Whole Project** (`vibesec.scanWorkspace`) — new title-bar button (`$(run-all)`) on the Scan panel; walks the entire workspace recursively, skips ignored directories (`node_modules`, `.git`, `dist`, etc.) and non-scannable files, and aggregates all findings into one panel update
+- **Scan Selected** now handles multiple files *and* folders — selecting a folder in the Scan panel and clicking play recursively scans every scannable file inside it
+- Batch scans run under `vscode.window.withProgress` with a "Scanning N / M files…" counter and a **Cancel** button that stops mid-scan cleanly
+- New async `expandTargetToFiles()` helper in `extension.ts` — walks directories using `fs.promises.readdir`, skips symlinks, dot-directories, and `IGNORED_DIR_NAMES`
+- New `src/scannableExtensions.ts` module — single source of truth for which extensions are scannable; shared between the Scan panel file browser and the multi-target walker
+
+#### AI Fix Prompts
+- New `src/promptGenerator.ts` — builds structured natural-language instructions from one or more findings and sends them to the configured LLM; returns the model's response as plain text
+  - `generatePromptForVuln(finding, opts)` — one model call per finding; includes ±5 lines of source context around the offending lines (marked with `>`)
+  - `generatePromptForFile(filePath, findings, opts)` — one call batching all findings in a file
+  - `generatePromptForProject(findings, opts)` — one call covering every finding across the whole scan
+- New `src/llmClient.ts` — thin HTTP client for all three providers using Node 18+ built-in `fetch` (no new dependency)
+  - OpenAI: `POST /v1/chat/completions`
+  - Anthropic: `POST /v1/messages` with `anthropic-version: 2023-06-01` header
+  - Gemini: `POST /v1beta/models/{model}:generateContent`
+  - Friendly error messages for 401 (key rejected), 429 (rate limit), 5xx (provider down), and network failures
+  - 60-second timeout via `AbortController`
+  - `pingProvider()` helper sends a minimal 1-token request for key verification
+
+#### Secure API Key Management
+- New `src/secrets.ts` — wrapper around VS Code `SecretStorage`; keys stored under `vibesec.apiKey.openai`, `vibesec.apiKey.anthropic`, `vibesec.apiKey.gemini`
+- `VibeSec: Set API Key` — picks provider from a quick-pick, prompts for key with `showInputBox({ password: true })` so the key is masked while typing
+- `VibeSec: Clear API Key` — removes the stored key for a chosen provider
+- `VibeSec: Test API Key` — sends a ping to verify the key works; shows a success or error notification
+
+#### Prompt UI — Generate and Copy Prompts
+- **Generate Prompts** (`$(sparkle)`) — title-bar button on the Findings panel; pre-generates prompts for all findings in batch according to the active `promptMode`; shows progress and supports cancellation
+- **Copy Prompt for Vulnerability** (`$(comment-discussion)`) — inline button on individual finding rows; generates on demand (or reads cache) and copies to clipboard
+- **Copy Prompt for File** (`$(comment-discussion)`) — inline button on file group rows
+- **Copy Prompt for All** (`$(comment-discussion)`) — title-bar button; copies the single project-level prompt
+- Prompts are **lazily generated** — no API call happens until the user clicks; scanning never triggers LLM calls automatically
+- Generated prompts are **cached in memory** on `FindingsProvider` and reused on subsequent clicks; cache is cleared whenever a new scan runs
+
+#### New Settings
+Three new entries in **Settings → VibeSec**:
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `vibesec.llmProvider` | dropdown | `anthropic` | Which AI provider to use (OpenAI / Anthropic / Gemini) |
+| `vibesec.llmModel` | string | `claude-haiku-4-5` | Model ID — defaults to cheapest tier per provider |
+| `vibesec.promptMode` | dropdown | `perFile` | How prompts are sliced: per file, per vulnerability, or per project |
+| `vibesec.fileExtensions` | string | *(space-separated list)* | Space-separated file extensions to scan; edit in one text field |
+
+- `vibesec.fileExtensions` changed from a JSON array (long list UI) to a plain string — users type extensions separated by spaces in a single compact text field
+- `vibesec.llmProvider` auto-suggests the cheapest default model when changed: `gpt-5-nano` (OpenAI), `claude-haiku-4-5` (Anthropic), `gemini-2.5-flash-lite` (Gemini)
+
+#### Onboarding Walkthrough — Step 4
+- New walkthrough step "Hook up an AI provider for fix prompts" added to the existing first-install walkthrough; guides users to `VibeSec: Set API Key`; completes automatically once the command is run
+
+---
+
+### Changed
+
+#### `src/extension.ts`
+- `runScanOnFile()` is now the inner loop of a new `runScanOnTargets(targets)` batch runner
+- `vibesec.scanSelected` now iterates all selected items, expands folders recursively, and passes the full file list to `runScanOnTargets`
+- New `resolveModel(provider, configuredModel)` helper — detects provider-model mismatches using string-prefix heuristics and falls back to the provider default
+- New `resolveLlmCallContext()` helper — reads provider + key + model from settings/secrets and surfaces actionable errors if anything is missing
+
+#### `src/findingsProvider.ts`
+- `setState()` clears the prompt cache on every call — stale prompts are never shown after a re-scan
+- New accessors `getAllFindings()`, `getFindingsForFile()`, `getFilePaths()` used by prompt commands
+- New static `FindingsProvider.keys` object exposes cache key helpers so callers don't need to import `types.ts` separately
+
+#### `src/scanProvider.ts`
+- `IGNORED_DIR_NAMES` is now exported — reused by the multi-target walker in `extension.ts`
+- Removed local `SCANNABLE_EXTENSIONS` constant — replaced by `getScannableExtensions()` from `scannableExtensions.ts`
+- Added `isScanFolderNode()` export
+
+#### `src/types.ts`
+- Added `LlmProvider` (`"openai" | "anthropic" | "gemini"`)
+- Added `PromptMode` (`"perVulnerability" | "perFile" | "perProject"`)
+- Added `FindingId` (branded string type for per-finding cache keys)
+- Added `PromptCache` (`Map<string, string>`)
+- Added `findingId(f)`, `promptCacheFileKey(path)`, `PROMPT_CACHE_PROJECT_KEY` helpers
+
+#### `package.json`
+- Version bumped `0.3.0` → `0.4.0`
+- 8 new commands registered: `scanWorkspace`, `setApiKey`, `clearApiKey`, `testApiKey`, `generatePrompts`, `copyPromptForVuln`, `copyPromptForFile`, `copyPromptForAll`
+- New title-bar and inline context-menu entries for prompt commands
+- `commandPalette` visibility rules hide internal commands (`copyPromptForVuln`, `copyPromptForFile`) from the palette
+
+---
+
+### New Files
+
+| File | Purpose |
+|---|---|
+| `src/scannableExtensions.ts` | Shared extension list + `isScannableUri()` helper |
+| `src/secrets.ts` | VS Code SecretStorage wrapper, per-provider key management |
+| `src/llmClient.ts` | HTTP clients for OpenAI, Anthropic, Gemini with error mapping |
+| `src/promptGenerator.ts` | Prompt assembly engine, three granularities |
+
+---
+
 ## [0.3.0] — Sprint 3 "Interface"
 
 ### Overview

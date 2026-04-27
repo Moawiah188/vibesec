@@ -40,7 +40,10 @@ No accounts. No cloud. No telemetry. Everything runs on your machine.
 | Copy Description button | ✅ v0.3.0 |
 | Configurable settings | ✅ v0.3.0 |
 | First-install walkthrough | ✅ v0.3.0 |
-| More stuff | 🔜 Coming next |
+| Scan whole project / multi-file scan | ✅ v0.4.0 |
+| AI fix prompts (OpenAI / Anthropic / Gemini) | ✅ v0.4.0 |
+| Secure API key storage | ✅ v0.4.0 |
+| Copy-paste prompts per finding, file, or project | ✅ v0.4.0 |
 
 ---
 
@@ -158,10 +161,15 @@ Use **VibeSec: Reload Policy** to pick up changes without restarting VS Code.
 | Command | Description |
 |---------|-------------|
 | `VibeSec: Scan Current File` | Scan the active file and show findings |
-| `VibeSec: Scan Selected` | Scan files selected in the Scan panel |
+| `VibeSec: Scan Selected` | Scan files/folders selected in the Scan panel |
+| `VibeSec: Scan Whole Project` | Scan every scannable file in the workspace |
 | `VibeSec: Open Policy File` | Create or open `.vibesec.yaml` in the workspace root |
 | `VibeSec: Reload Policy` | Force-reload the policy file from disk |
 | `VibeSec: Refresh File Tree` | Manually rebuild the Scan panel file list |
+| `VibeSec: Set API Key` | Store an OpenAI, Anthropic, or Gemini API key securely |
+| `VibeSec: Clear API Key` | Remove a stored API key |
+| `VibeSec: Test API Key` | Verify a stored key is valid and accepted |
+| `VibeSec: Generate Prompts` | Pre-generate AI fix prompts for all current findings |
 
 ---
 
@@ -170,12 +178,16 @@ Use **VibeSec: Reload Policy** to pick up changes without restarting VS Code.
 ```
 vibesec/
 ├── src/
-│   ├── extension.ts          # Entry point — registers commands, wires up UI
-│   ├── scanner.ts            # Runs Semgrep, parses JSON output
-│   ├── policy.ts             # Loads and validates .vibesec.yaml
-│   ├── findingsProvider.ts   # Findings panel (TreeView)
-│   ├── scanProvider.ts       # Scan panel file browser (TreeView)
-│   └── types.ts              # Internal data models
+│   ├── extension.ts            # Entry point — registers commands, wires up UI
+│   ├── scanner.ts              # Runs Semgrep, parses JSON output
+│   ├── policy.ts               # Loads and validates .vibesec.yaml
+│   ├── findingsProvider.ts     # Findings panel (TreeView)
+│   ├── scanProvider.ts         # Scan panel file browser (TreeView)
+│   ├── scannableExtensions.ts  # Shared list of scannable file extensions
+│   ├── secrets.ts              # Secure API key storage (VS Code SecretStorage)
+│   ├── llmClient.ts            # HTTP clients for OpenAI, Anthropic, Gemini
+│   ├── promptGenerator.ts      # Builds AI fix prompts from findings
+│   └── types.ts                # Internal data models
 ├── media/
 │   ├── vibesec-icon.svg      # Activity bar icon
 │   └── walkthrough/          # First-install walkthrough content
@@ -218,7 +230,27 @@ Languages covered: **Python, JavaScript, TypeScript**
 - **v0.1.0** — Sprint 1 "Scan": scan a file, show inline highlights ✅
 - **v0.2.0** — Sprint 2 "Policy": policy file, findings panel, bundled ruleset ✅
 - **v0.3.0** — Sprint 3 "Interface": activity bar, scan panel, redesigned findings tree ✅
-- **Next** — Local scan history saved to file
+- **v0.4.0** — Sprint 4 "Prompts": multi-file scan, AI fix prompts, API key management ✅
+- **Next** — Unified analysis tab, in-extension fix workflow
+
+---
+
+## AI Fix Prompts
+
+After a scan, VibeSec can generate a copy-paste prompt you paste into Cursor, Claude Code, ChatGPT, or any AI assistant to get a fix back.
+
+**Setup (one time):**
+1. `Ctrl+Shift+P` → **VibeSec: Set API Key** — pick your provider (OpenAI, Anthropic, or Gemini) and paste your key. It's stored securely using VS Code's built-in secret storage and never written to disk.
+2. Open **Settings → VibeSec** and choose your preferred **Prompt Mode**:
+   - **Per File** *(default)* — one prompt per file, batching all findings in it
+   - **Per Vulnerability** — one prompt per individual finding
+   - **Per Project** — one prompt covering every finding across the whole scan
+
+**Generating prompts:**
+- Click the **$(sparkle) Generate Prompts** button in the Findings panel title bar to pre-generate all prompts at once
+- Or hover any finding/file row and click the **$(comment-discussion) Copy Prompt** button to generate and copy on demand — no upfront cost
+
+Prompts include the offending code with context lines, rule details, and instructions for the AI to explain the issue, show a corrected snippet, and list follow-up checks.
 
 ---
 
@@ -229,8 +261,9 @@ Languages covered: **Python, JavaScript, TypeScript**
 - Semgrep CLI
 - `js-yaml` — policy file parsing
 - `minimatch` — glob-based file exclusions
+- Node 18+ built-in `fetch` — LLM API calls (no extra HTTP library)
 
-No backend. No database. No cloud infrastructure.
+No backend. No database. No cloud infrastructure. Your API key stays on your machine.
 
 ---
 

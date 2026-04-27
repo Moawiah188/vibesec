@@ -1,6 +1,13 @@
 import * as path from "path";
 import * as vscode from "vscode";
-import { Finding } from "./types";
+import {
+  Finding,
+  FindingId,
+  PromptCache,
+  PROMPT_CACHE_PROJECT_KEY,
+  findingId,
+  promptCacheFileKey,
+} from "./types";
 
 // ── Panel state ───────────────────────────────────────────────────────────────
 
@@ -144,11 +151,81 @@ export class FindingsProvider
 
   private state: PanelState = { kind: "empty" };
 
+  // ── Prompt cache (Sprint 4) ──────────────────────────────────────────────
+  //
+  // Generated prompts are stored here keyed by:
+  //   • findingId(f)             — per-vuln prompts
+  //   • promptCacheFileKey(path) — per-file prompts
+  //   • PROMPT_CACHE_PROJECT_KEY — the single project-level prompt
+  // The cache is wiped any time setState is called with a fresh `findings`
+  // payload so users never see stale prompts after re-scanning.
+  private promptCache: PromptCache = new Map();
+
   /** Called by extension.ts after each scan or state change. */
   setState(state: PanelState): void {
     this.state = state;
+    // Any new state means the previous prompts no longer match what's shown.
+    this.promptCache.clear();
     this._onDidChangeTreeData.fire();
   }
+
+  // ── Findings accessors (used by Copy/Generate Prompt commands) ──────────
+
+  getAllFindings(): Finding[] {
+    return this.state.kind === "findings" ? this.state.findings : [];
+  }
+
+  getFindingsForFile(filePath: string): Finding[] {
+    return this.getAllFindings().filter((f) => f.filePath === filePath);
+  }
+
+  /** Distinct file paths in the current findings, in insertion order. */
+  getFilePaths(): string[] {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const f of this.getAllFindings()) {
+      if (!seen.has(f.filePath)) {
+        seen.add(f.filePath);
+        out.push(f.filePath);
+      }
+    }
+    return out;
+  }
+
+  // ── Prompt cache API ─────────────────────────────────────────────────────
+
+  getCachedPrompt(key: string): string | undefined {
+    return this.promptCache.get(key);
+  }
+
+  setCachedPrompt(key: string, prompt: string): void {
+    this.promptCache.set(key, prompt);
+  }
+
+  hasCachedPrompt(key: string): boolean {
+    return this.promptCache.has(key);
+  }
+
+  clearPromptCache(): void {
+    this.promptCache.clear();
+  }
+
+  // Convenience helpers so callers don't need to construct cache keys
+  cachedPromptForFinding(f: Finding): string | undefined {
+    return this.promptCache.get(findingId(f));
+  }
+  cachedPromptForFile(filePath: string): string | undefined {
+    return this.promptCache.get(promptCacheFileKey(filePath));
+  }
+  cachedPromptForProject(): string | undefined {
+    return this.promptCache.get(PROMPT_CACHE_PROJECT_KEY);
+  }
+  /** Re-export of the keying helpers so callers don't double-import types.ts. */
+  static keys = {
+    forFinding: (f: Finding): FindingId => findingId(f),
+    forFile:    (p: string): string => promptCacheFileKey(p),
+    forProject: (): string => PROMPT_CACHE_PROJECT_KEY,
+  };
 
   /**
    * viewsWelcome in package.json now handles empty/noFindings/error states

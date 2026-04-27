@@ -3,10 +3,42 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { minimatch } from "minimatch";
 import { FindingsProvider, PanelState } from "./findingsProvider";
+import { LlmClientError, PROVIDER_DEFAULT_MODEL, pingProvider } from "./llmClient";
 import { loadPolicy, PolicyLoadResult } from "./policy";
+import {
+  generatePromptForFile,
+  generatePromptForProject,
+  generatePromptForVuln,
+  GenerateOptions,
+} from "./promptGenerator";
+import {
+  getScannableExtensions,
+  isScannablePath,
+} from "./scannableExtensions";
 import { scanFile } from "./scanner";
-import { isScanFileNode, isScannableUri, ScanProvider } from "./scanProvider";
-import { Finding, PolicyConfig } from "./types";
+import {
+  IGNORED_DIR_NAMES,
+  ScanNode,
+  ScanProvider,
+  isScanFileNode,
+  isScanFolderNode,
+} from "./scanProvider";
+import {
+  PROVIDER_LABEL,
+  clearApiKey,
+  getApiKey,
+  pickProvider,
+  setApiKey,
+} from "./secrets";
+import {
+  Finding,
+  LlmProvider,
+  PolicyConfig,
+  PromptMode,
+  findingId,
+  promptCacheFileKey,
+  PROMPT_CACHE_PROJECT_KEY,
+} from "./types";
 
 // ── Policy template written when openPolicyFile creates a new file ────────────
 
@@ -102,6 +134,51 @@ function isFileExcluded(filePath: string, workspaceRoot: string, policy: PolicyC
   );
 }
 
+// ── Folder walking (Sprint 4: multi-target scanning) ─────────────────────────
+
+/**
+ * Resolve a target path (file or folder) to the list of scannable files
+ * underneath it. For files this returns `[path]` when scannable, `[]` when
+ * not. For folders this recursively collects scannable files, skipping
+ * IGNORED_DIR_NAMES and dot-directories. Symlinks are not followed to avoid
+ * cycle hazards.
+ */
+async function expandTargetToFiles(
+  targetPath: string,
+  scannableExts: Set<string>,
+): Promise<string[]> {
+  let stat: fs.Stats;
+  try { stat = await fs.promises.lstat(targetPath); }
+  catch { return []; }
+
+  if (stat.isFile()) {
+    return isScannablePath(targetPath, scannableExts) ? [targetPath] : [];
+  }
+  if (!stat.isDirectory()) { return []; }
+
+  const out: string[] = [];
+  const stack: string[] = [targetPath];
+  while (stack.length > 0) {
+    const dir = stack.pop()!;
+    let entries: fs.Dirent[];
+    try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); }
+    catch { continue; }
+
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isSymbolicLink()) { continue; }
+      if (entry.isDirectory()) {
+        if (IGNORED_DIR_NAMES.has(entry.name)) { continue; }
+        if (entry.name.startsWith(".")) { continue; }
+        stack.push(full);
+      } else if (entry.isFile()) {
+        if (isScannablePath(full, scannableExts)) { out.push(full); }
+      }
+    }
+  }
+  return out;
+}
+
 // ── Policy cache (per workspace root) ────────────────────────────────────────
 
 const policyCache = new Map<string, PolicyConfig>();
@@ -194,7 +271,30 @@ export function activate(context: vscode.ExtensionContext): void {
       semgrepPath:           cfg.get<string>("semgrepPath", "semgrep"),
       autoScanOnSave:        cfg.get<boolean>("autoScanOnSave", false),
       showInlineDecorations: cfg.get<boolean>("showInlineDecorations", true),
+      llmProvider:           cfg.get<LlmProvider>("llmProvider", "anthropic"),
+      llmModel:              (cfg.get<string>("llmModel", "") || "").trim(),
+      promptMode:            cfg.get<PromptMode>("promptMode", "perFile"),
     };
+  }
+
+  /**
+   * Resolve the model id to use for a given provider. Falls back to the
+   * provider's default if the user hasn't set llmModel or set it to a
+   * model that obviously belongs to a different provider.
+   */
+  function resolveModel(provider: LlmProvider, configured: string): string {
+    const fallback = PROVIDER_DEFAULT_MODEL[provider];
+    if (configured === "") { return fallback; }
+    // Heuristic: if the model id obviously belongs to another provider, fall
+    // back to the chosen provider's default. Saves users from "anthropic +
+    // gpt-5-nano" misconfigurations after switching providers.
+    const looksLikeOpenAI    = /^gpt[-_]/i.test(configured) || /^o\d/i.test(configured);
+    const looksLikeAnthropic = /^claude[-_]/i.test(configured);
+    const looksLikeGemini    = /^gemini[-_]/i.test(configured);
+    if (provider === "anthropic" && (looksLikeOpenAI || looksLikeGemini)) { return fallback; }
+    if (provider === "openai"    && (looksLikeAnthropic || looksLikeGemini)) { return fallback; }
+    if (provider === "gemini"    && (looksLikeOpenAI    || looksLikeAnthropic)) { return fallback; }
+    return configured;
   }
 
   function setContextState(kind: PanelState["kind"]): void {
@@ -221,13 +321,21 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // ── Shared scan runner ───────────────────────────────────────────────────
   //
-  // Runs a Semgrep scan on a single file, honors the policy's exclude globs,
-  // and updates the Findings panel + inline diagnostics. Both scanCurrentFile
-  // and scanSelected funnel through here so the behavior stays identical.
-  async function runScanOnFile(filePath: string): Promise<void> {
-    const fileUri = vscode.Uri.file(filePath);
-    const folder  = vscode.workspace.getWorkspaceFolder(fileUri);
-    const workspaceRoot = folder?.uri.fsPath
+  // Runs Semgrep across one or more targets (each a file or folder URI).
+  // Folders are walked recursively, skipping IGNORED_DIR_NAMES, dot-dirs, and
+  // files whose extension isn't in the configured fileExtensions set.
+  // Each file still passes through the policy's `files.exclude` globs.
+  // Findings from every file are aggregated into a single panel update.
+  async function runScanOnTargets(targets: vscode.Uri[]): Promise<void> {
+    if (targets.length === 0) {
+      vscode.window.showWarningMessage("VibeSec: No files selected to scan.");
+      return;
+    }
+
+    // Resolve a workspace root. Use the workspace folder of the first target
+    // when possible, otherwise fall back to the first open workspace folder.
+    const firstFolder = vscode.workspace.getWorkspaceFolder(targets[0]);
+    const workspaceRoot = firstFolder?.uri.fsPath
       ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
     if (!workspaceRoot) {
@@ -244,45 +352,104 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     const policy = policyResult.policy;
 
-    if (isFileExcluded(filePath, workspaceRoot, policy)) {
+    // Expand folder targets into the files they contain. Apply scannable-
+    // extension and policy-exclude filters as we walk so the progress count
+    // reflects only files we'll actually scan.
+    const exts = getScannableExtensions();
+    const expanded: string[] = [];
+    const seen = new Set<string>();
+    for (const uri of targets) {
+      const expandedFiles = await expandTargetToFiles(uri.fsPath, exts);
+      for (const fp of expandedFiles) {
+        if (seen.has(fp)) { continue; }
+        if (isFileExcluded(fp, workspaceRoot, policy)) { continue; }
+        seen.add(fp);
+        expanded.push(fp);
+      }
+    }
+
+    if (expanded.length === 0) {
       vscode.window.showInformationMessage(
-        "VibeSec: This file is excluded by policy (files.exclude). Skipping scan.",
+        "VibeSec: Nothing to scan — selection contained no scannable files (after applying file-extension and policy filters).",
       );
       return;
     }
 
+    const { semgrepPath, showInlineDecorations } = getConfig();
+    const aggregated: Finding[] = [];
+    const failures: { filePath: string; message: string }[] = [];
+
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title:    `VibeSec: Scanning ${path.basename(filePath)}...`,
+        title:    `VibeSec: Scanning ${expanded.length} file${expanded.length !== 1 ? "s" : ""}…`,
+        cancellable: true,
       },
-      async () => {
-        try {
-          const { semgrepPath, showInlineDecorations } = getConfig();
-          const findings = await scanFile(filePath, policy, context.extensionPath, semgrepPath);
+      async (progress, token) => {
+        const total = expanded.length;
+        const step  = 100 / total;
 
-          if (showInlineDecorations) {
-            diagnosticCollection.set(fileUri, findings.map(toDiagnostic));
-          } else {
-            diagnosticCollection.delete(fileUri);
-          }
+        for (let i = 0; i < total; i++) {
+          if (token.isCancellationRequested) { break; }
+          const filePath = expanded[i];
+          progress.report({
+            increment: i === 0 ? 0 : step,
+            message:   `(${i + 1}/${total}) ${path.basename(filePath)}`,
+          });
 
-          if (findings.length === 0) {
-            updatePanel({ kind: "noFindings" });
-            vscode.window.showInformationMessage("VibeSec: No issues found.");
-          } else {
-            updatePanel({ kind: "findings", findings });
-            vscode.window.showWarningMessage(
-              `VibeSec: Found ${findings.length} issue${findings.length !== 1 ? "s" : ""}.`,
-            );
+          try {
+            const findings = await scanFile(filePath, policy, context.extensionPath, semgrepPath);
+            const fileUri = vscode.Uri.file(filePath);
+            if (showInlineDecorations) {
+              diagnosticCollection.set(fileUri, findings.map(toDiagnostic));
+            } else {
+              diagnosticCollection.delete(fileUri);
+            }
+            aggregated.push(...findings);
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            failures.push({ filePath, message: msg });
           }
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          updatePanel({ kind: "error", message: msg });
-          vscode.window.showErrorMessage(`VibeSec scan failed: ${msg}`);
         }
+
+        // Final tick so the bar reaches 100% before disappearing.
+        progress.report({ increment: step });
       },
     );
+
+    // ── Present results ─────────────────────────────────────────────────────
+    if (aggregated.length === 0 && failures.length > 0 && failures.length === expanded.length) {
+      // Every file failed. Surface the first error.
+      const first = failures[0];
+      updatePanel({ kind: "error", message: first.message });
+      vscode.window.showErrorMessage(
+        `VibeSec scan failed: ${first.message}` +
+        (failures.length > 1 ? ` (and ${failures.length - 1} more)` : ""),
+      );
+      return;
+    }
+
+    if (aggregated.length === 0) {
+      updatePanel({ kind: "noFindings" });
+      const suffix = failures.length > 0
+        ? ` (${failures.length} file${failures.length !== 1 ? "s" : ""} failed to scan — see Output.)`
+        : "";
+      vscode.window.showInformationMessage(`VibeSec: No issues found in ${expanded.length} file${expanded.length !== 1 ? "s" : ""}.${suffix}`);
+    } else {
+      updatePanel({ kind: "findings", findings: aggregated });
+      const fileCount = new Set(aggregated.map((f) => f.filePath)).size;
+      const suffix = failures.length > 0
+        ? ` (${failures.length} file${failures.length !== 1 ? "s" : ""} failed to scan.)`
+        : "";
+      vscode.window.showWarningMessage(
+        `VibeSec: Found ${aggregated.length} issue${aggregated.length !== 1 ? "s" : ""} across ${fileCount} file${fileCount !== 1 ? "s" : ""}.${suffix}`,
+      );
+    }
+  }
+
+  /** Single-file convenience wrapper for the scanCurrentFile command. */
+  async function runScanOnFile(filePath: string): Promise<void> {
+    await runScanOnTargets([vscode.Uri.file(filePath)]);
   }
 
   // ── 2. vibesec.scanCurrentFile ────────────────────────────────────────────
@@ -301,32 +468,25 @@ export function activate(context: vscode.ExtensionContext): void {
   // ── 2b. vibesec.scanSelected ─────────────────────────────────────────────
   //
   // Reads the Scan panel's native selection (set via click / Ctrl+click /
-  // Shift+click), filters to scannable files, and runs the scan.
-  // Single-file for now — warns and scans the first file when >1 is picked.
+  // Shift+click) and scans every file selected, plus every scannable file
+  // underneath any selected folders.
   const scanSelectedCmd = vscode.commands.registerCommand(
     "vibesec.scanSelected",
     async () => {
       const selection = scanTreeView.selection;
-      const scannableFiles = selection
-        .filter(isScanFileNode)
-        .filter((n) => isScannableUri(n.uri))
-        .map((n) => n.uri.fsPath);
+      const targets: vscode.Uri[] = selection
+        .filter((n: ScanNode) => isScanFileNode(n) || isScanFolderNode(n))
+        .map((n: ScanNode) => n.uri);
 
-      if (scannableFiles.length === 0) {
+      if (targets.length === 0) {
         vscode.window.showWarningMessage(
-          "VibeSec: Select one or more files in the Scan panel first. " +
-          "(Click a file, Ctrl/Cmd+Click to add more.)",
+          "VibeSec: Select one or more files or folders in the Scan panel first. " +
+          "(Click to select, Ctrl/Cmd+Click to add more, Shift+Click for a range.)",
         );
         return;
       }
 
-      if (scannableFiles.length > 1) {
-        vscode.window.showInformationMessage(
-          `VibeSec: Multi-file scanning is coming soon — scanning ${path.basename(scannableFiles[0])} for now.`,
-        );
-      }
-
-      await runScanOnFile(scannableFiles[0]);
+      await runScanOnTargets(targets);
     },
   );
 
@@ -335,6 +495,24 @@ export function activate(context: vscode.ExtensionContext): void {
     "vibesec.refreshScanTree",
     () => {
       scanProvider.refresh();
+    },
+  );
+
+  // ── 2d. vibesec.scanWorkspace ────────────────────────────────────────────
+  //
+  // Scans every workspace folder. Honors IGNORED_DIR_NAMES, dot-dirs, the
+  // configured fileExtensions setting, and `.vibesec.yaml` excludes.
+  const scanWorkspaceCmd = vscode.commands.registerCommand(
+    "vibesec.scanWorkspace",
+    async () => {
+      const folders = vscode.workspace.workspaceFolders;
+      if (!folders || folders.length === 0) {
+        vscode.window.showWarningMessage(
+          "VibeSec: No workspace folder is open. Open a folder to use VibeSec.",
+        );
+        return;
+      }
+      await runScanOnTargets(folders.map((f) => f.uri));
     },
   );
 
@@ -441,6 +619,355 @@ export function activate(context: vscode.ExtensionContext): void {
     },
   );
 
+  // ── 7. API key management (Sprint 4) ─────────────────────────────────────
+  //
+  // API keys live in VS Code's SecretStorage, never in settings.json. Each
+  // provider has its own slot so users can keep keys for OpenAI, Anthropic,
+  // and Gemini and switch between them via the `vibesec.llmProvider` setting.
+  const setApiKeyCmd = vscode.commands.registerCommand(
+    "vibesec.setApiKey",
+    async () => {
+      const provider = await pickProvider("Which provider's API key are you setting?");
+      if (!provider) { return; }
+      const key = await vscode.window.showInputBox({
+        title:        `VibeSec — set ${PROVIDER_LABEL[provider]} API key`,
+        prompt:       `Paste your ${PROVIDER_LABEL[provider]} API key. It will be stored securely and never written to settings.`,
+        password:     true,
+        ignoreFocusOut: true,
+        placeHolder:  PROVIDER_LABEL[provider] + " API key",
+      });
+      if (!key) { return; }
+      const trimmed = key.trim();
+      if (trimmed === "") {
+        vscode.window.showWarningMessage("VibeSec: Empty key — nothing was saved.");
+        return;
+      }
+      await setApiKey(context, provider, trimmed);
+      vscode.window.showInformationMessage(
+        `VibeSec: ${PROVIDER_LABEL[provider]} API key saved. Run "VibeSec: Test API Key" to verify it.`,
+      );
+    },
+  );
+
+  const clearApiKeyCmd = vscode.commands.registerCommand(
+    "vibesec.clearApiKey",
+    async () => {
+      const provider = await pickProvider("Which provider's API key do you want to remove?");
+      if (!provider) { return; }
+      await clearApiKey(context, provider);
+      vscode.window.showInformationMessage(
+        `VibeSec: ${PROVIDER_LABEL[provider]} API key removed.`,
+      );
+    },
+  );
+
+  const testApiKeyCmd = vscode.commands.registerCommand(
+    "vibesec.testApiKey",
+    async () => {
+      const provider = await pickProvider("Which provider's API key do you want to test?");
+      if (!provider) { return; }
+      const key = await getApiKey(context, provider);
+      if (!key) {
+        vscode.window.showWarningMessage(
+          `VibeSec: No ${PROVIDER_LABEL[provider]} API key is set. Run "VibeSec: Set API Key" first.`,
+        );
+        return;
+      }
+      const cfg   = getConfig();
+      const model = resolveModel(provider, provider === cfg.llmProvider ? cfg.llmModel : "");
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title:    `VibeSec: Testing ${PROVIDER_LABEL[provider]} (${model})…`,
+        },
+        async () => {
+          try {
+            await pingProvider(provider, key, model);
+            vscode.window.showInformationMessage(
+              `VibeSec: ${PROVIDER_LABEL[provider]} (${model}) responded — your key works.`,
+            );
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            vscode.window.showErrorMessage(`VibeSec: ${msg}`);
+          }
+        },
+      );
+    },
+  );
+
+  // ── 8. Prompt generation (Sprint 4) ──────────────────────────────────────
+  //
+  // generatePromptsCmd populates the cache for whichever granularity the
+  // user has selected (perFile / perVulnerability / perProject). The three
+  // copyPrompt* commands read from that cache and lazily fill it on miss.
+
+  /** Resolve provider + apiKey + model, or show a friendly error and return undefined. */
+  async function resolveLlmCallContext(): Promise<
+    | { ok: true; opts: GenerateOptions; provider: LlmProvider }
+    | { ok: false }
+  > {
+    const cfg      = getConfig();
+    const provider = cfg.llmProvider;
+    const apiKey   = await getApiKey(context, provider);
+    if (!apiKey) {
+      const action = "Set API Key";
+      const choice = await vscode.window.showWarningMessage(
+        `VibeSec: No ${PROVIDER_LABEL[provider]} API key is set. Generate prompts after saving a key.`,
+        action,
+      );
+      if (choice === action) {
+        await vscode.commands.executeCommand("vibesec.setApiKey");
+      }
+      return { ok: false };
+    }
+    const model = resolveModel(provider, cfg.llmModel);
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    return {
+      ok: true,
+      provider,
+      opts: { provider, apiKey, model, workspaceRoot },
+    };
+  }
+
+  function reportLlmFailure(err: unknown): void {
+    const msg = err instanceof LlmClientError
+      ? err.message
+      : err instanceof Error ? err.message : String(err);
+    vscode.window.showErrorMessage(`VibeSec: ${msg}`);
+  }
+
+  const generatePromptsCmd = vscode.commands.registerCommand(
+    "vibesec.generatePrompts",
+    async () => {
+      const findings = findingsProvider.getAllFindings();
+      if (findings.length === 0) {
+        vscode.window.showInformationMessage(
+          "VibeSec: No findings to generate prompts for. Run a scan first.",
+        );
+        return;
+      }
+      const ctx = await resolveLlmCallContext();
+      if (!ctx.ok) { return; }
+
+      const cfg = getConfig();
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title:    `VibeSec: Generating prompts (${cfg.promptMode}, ${PROVIDER_LABEL[ctx.provider]})…`,
+          cancellable: true,
+        },
+        async (progress, token) => {
+          try {
+            const optsWithSignal = (signal: AbortSignal): GenerateOptions =>
+              ({ ...ctx.opts, signal });
+            const controller = new AbortController();
+            token.onCancellationRequested(() => controller.abort());
+
+            switch (cfg.promptMode) {
+              case "perVulnerability": {
+                // Bottom-up: per-vuln, then per-file, then project-level.
+                const filePaths = findingsProvider.getFilePaths();
+                const totalSteps = findings.length + filePaths.length + 1;
+                const step = 100 / totalSteps;
+                let n = 0;
+                for (const f of findings) {
+                  if (token.isCancellationRequested) { return; }
+                  n++;
+                  progress.report({
+                    increment: step,
+                    message: `Vulnerability ${n}/${findings.length} — ${path.basename(f.filePath)}:${f.startLine + 1}`,
+                  });
+                  const key = findingId(f);
+                  if (findingsProvider.hasCachedPrompt(key)) { continue; }
+                  const text = await generatePromptForVuln(f, optsWithSignal(controller.signal));
+                  findingsProvider.setCachedPrompt(key, text);
+                }
+                let i = 0;
+                for (const fp of filePaths) {
+                  if (token.isCancellationRequested) { return; }
+                  i++;
+                  progress.report({
+                    increment: step,
+                    message: `File ${i}/${filePaths.length} — ${path.basename(fp)}`,
+                  });
+                  const key = promptCacheFileKey(fp);
+                  if (findingsProvider.hasCachedPrompt(key)) { continue; }
+                  const text = await generatePromptForFile(
+                    fp,
+                    findingsProvider.getFindingsForFile(fp),
+                    optsWithSignal(controller.signal),
+                  );
+                  findingsProvider.setCachedPrompt(key, text);
+                }
+                progress.report({ increment: step, message: "Project-level prompt…" });
+                if (!findingsProvider.hasCachedPrompt(PROMPT_CACHE_PROJECT_KEY)) {
+                  const text = await generatePromptForProject(findings, optsWithSignal(controller.signal));
+                  findingsProvider.setCachedPrompt(PROMPT_CACHE_PROJECT_KEY, text);
+                }
+                break;
+              }
+              case "perFile": {
+                const filePaths = findingsProvider.getFilePaths();
+                const step = 100 / Math.max(1, filePaths.length);
+                let i = 0;
+                for (const fp of filePaths) {
+                  if (token.isCancellationRequested) { return; }
+                  i++;
+                  progress.report({
+                    increment: step,
+                    message: `File ${i}/${filePaths.length} — ${path.basename(fp)}`,
+                  });
+                  const key = promptCacheFileKey(fp);
+                  if (findingsProvider.hasCachedPrompt(key)) { continue; }
+                  const text = await generatePromptForFile(
+                    fp,
+                    findingsProvider.getFindingsForFile(fp),
+                    optsWithSignal(controller.signal),
+                  );
+                  findingsProvider.setCachedPrompt(key, text);
+                }
+                break;
+              }
+              case "perProject": {
+                progress.report({ increment: 100, message: "Project-level prompt…" });
+                if (!findingsProvider.hasCachedPrompt(PROMPT_CACHE_PROJECT_KEY)) {
+                  const text = await generatePromptForProject(findings, optsWithSignal(controller.signal));
+                  findingsProvider.setCachedPrompt(PROMPT_CACHE_PROJECT_KEY, text);
+                }
+                break;
+              }
+            }
+
+            vscode.window.showInformationMessage(
+              "VibeSec: Prompts ready. Right-click a finding or file in the Findings panel and pick Copy Prompt.",
+            );
+          } catch (err) {
+            reportLlmFailure(err);
+          }
+        },
+      );
+    },
+  );
+
+  // Copy commands. Each one reads from cache on hit, generates lazily on miss.
+  async function copyPromptForFinding(f: Finding): Promise<void> {
+    const cached = findingsProvider.cachedPromptForFinding(f);
+    if (cached) {
+      await vscode.env.clipboard.writeText(cached);
+      vscode.window.showInformationMessage("VibeSec: Prompt copied to clipboard.");
+      return;
+    }
+    const ctx = await resolveLlmCallContext();
+    if (!ctx.ok) { return; }
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title:    `VibeSec: Generating prompt for ${path.basename(f.filePath)}:${f.startLine + 1}…`,
+      },
+      async () => {
+        try {
+          const text = await generatePromptForVuln(f, ctx.opts);
+          findingsProvider.setCachedPrompt(findingId(f), text);
+          await vscode.env.clipboard.writeText(text);
+          vscode.window.showInformationMessage("VibeSec: Prompt copied to clipboard.");
+        } catch (err) { reportLlmFailure(err); }
+      },
+    );
+  }
+
+  async function copyPromptForFilePath(filePath: string): Promise<void> {
+    const cached = findingsProvider.cachedPromptForFile(filePath);
+    if (cached) {
+      await vscode.env.clipboard.writeText(cached);
+      vscode.window.showInformationMessage("VibeSec: File prompt copied to clipboard.");
+      return;
+    }
+    const findings = findingsProvider.getFindingsForFile(filePath);
+    if (findings.length === 0) {
+      vscode.window.showWarningMessage("VibeSec: No findings for this file.");
+      return;
+    }
+    const ctx = await resolveLlmCallContext();
+    if (!ctx.ok) { return; }
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title:    `VibeSec: Generating prompt for ${path.basename(filePath)}…`,
+      },
+      async () => {
+        try {
+          const text = await generatePromptForFile(filePath, findings, ctx.opts);
+          findingsProvider.setCachedPrompt(promptCacheFileKey(filePath), text);
+          await vscode.env.clipboard.writeText(text);
+          vscode.window.showInformationMessage("VibeSec: File prompt copied to clipboard.");
+        } catch (err) { reportLlmFailure(err); }
+      },
+    );
+  }
+
+  const copyPromptForVulnCmd = vscode.commands.registerCommand(
+    "vibesec.copyPromptForVuln",
+    async (node: { finding?: Finding }) => {
+      const f = node?.finding;
+      if (!f) { return; }
+      await copyPromptForFinding(f);
+    },
+  );
+
+  const copyPromptForFileCmd = vscode.commands.registerCommand(
+    "vibesec.copyPromptForFile",
+    async (node: { filePath?: string }) => {
+      const fp = node?.filePath;
+      if (!fp) { return; }
+      await copyPromptForFilePath(fp);
+    },
+  );
+
+  const copyPromptForAllCmd = vscode.commands.registerCommand(
+    "vibesec.copyPromptForAll",
+    async () => {
+      const findings = findingsProvider.getAllFindings();
+      if (findings.length === 0) {
+        vscode.window.showInformationMessage(
+          "VibeSec: No findings to generate a prompt for. Run a scan first.",
+        );
+        return;
+      }
+      const cached = findingsProvider.cachedPromptForProject();
+      if (cached) {
+        await vscode.env.clipboard.writeText(cached);
+        vscode.window.showInformationMessage("VibeSec: Project prompt copied to clipboard.");
+        return;
+      }
+      const ctx = await resolveLlmCallContext();
+      if (!ctx.ok) { return; }
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title:    "VibeSec: Generating project-wide prompt…",
+        },
+        async () => {
+          try {
+            const text = await generatePromptForProject(findings, ctx.opts);
+            findingsProvider.setCachedPrompt(PROMPT_CACHE_PROJECT_KEY, text);
+            await vscode.env.clipboard.writeText(text);
+            vscode.window.showInformationMessage("VibeSec: Project prompt copied to clipboard.");
+          } catch (err) { reportLlmFailure(err); }
+        },
+      );
+    },
+  );
+
+  // ── 9. Settings change listener ──────────────────────────────────────────
+  //
+  // Refresh the Scan tree when the file-extension list changes so the
+  // "not scannable" badges stay in sync with the user's preference.
+  const configListener = vscode.workspace.onDidChangeConfiguration((event) => {
+    if (event.affectsConfiguration("vibesec.fileExtensions")) {
+      scanProvider.refresh();
+    }
+  });
+
   const onSaveListener = vscode.workspace.onDidSaveTextDocument(async (document) => {
     if (!getConfig().autoScanOnSave) { return; }
     const editor = vscode.window.activeTextEditor;
@@ -457,10 +984,19 @@ export function activate(context: vscode.ExtensionContext): void {
     scanCmd,
     scanSelectedCmd,
     refreshScanTreeCmd,
+    scanWorkspaceCmd,
     goToCmd,
     reloadCmd,
     openPolicyCmd,
     copyDescCmd,
+    setApiKeyCmd,
+    clearApiKeyCmd,
+    testApiKeyCmd,
+    generatePromptsCmd,
+    copyPromptForVulnCmd,
+    copyPromptForFileCmd,
+    copyPromptForAllCmd,
+    configListener,
     onSaveListener,
   );
 }

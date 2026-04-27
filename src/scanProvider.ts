@@ -1,5 +1,6 @@
 import * as path from "path";
 import * as vscode from "vscode";
+import { isScannableUri as isScannableUriShared } from "./scannableExtensions";
 
 // ── Scan panel tree ──────────────────────────────────────────────────────────
 //
@@ -15,16 +16,14 @@ import * as vscode from "vscode";
 // selection colors (`list.activeSelectionBackground`) give us the smooth
 // full-row blue highlight the design calls for, and it respects every
 // VS Code theme for free.
-//
-// Scan execution is currently single-file, so the scanSelected command
-// will warn if >1 file is picked and scan the first one. The multi-select
-// UI is forward-compatible for when multi-file scanning lands.
 
 // ── Ignored directory names ──────────────────────────────────────────────────
 //
 // Skipped entirely when walking the workspace. Matches the common noise
 // folders across Node / Python / build tooling so users never see them.
-const IGNORED_DIR_NAMES = new Set([
+// Exported so the multi-target scan walker (extension.ts) can apply the same
+// filter when descending into a folder selection or whole-workspace scan.
+export const IGNORED_DIR_NAMES = new Set([
   "node_modules",
   ".git",
   ".vscode",
@@ -42,31 +41,6 @@ const IGNORED_DIR_NAMES = new Set([
   "target",       // rust / java
   "bin",
   "obj",
-]);
-
-// ── Scannable file extensions ────────────────────────────────────────────────
-//
-// Only these extensions are eligible for scanning. Non-scannable files still
-// appear in the tree (for context) but are marked "not scannable" and the
-// scanSelected command filters them out.
-const SCANNABLE_EXTENSIONS = new Set([
-  ".py",  ".pyi",
-  ".js",  ".jsx",  ".mjs",  ".cjs",
-  ".ts",  ".tsx",
-  ".java",
-  ".go",
-  ".rb",
-  ".php",
-  ".c",   ".h",    ".cpp",  ".hpp",   ".cc",
-  ".cs",
-  ".rs",
-  ".swift",
-  ".kt",  ".kts",
-  ".scala",
-  ".yaml", ".yml",
-  ".json",
-  ".html", ".htm",
-  ".sh",  ".bash",
 ]);
 
 // ── Tree node discriminated union ────────────────────────────────────────────
@@ -89,10 +63,12 @@ export function isScanFileNode(node: ScanNode): node is FileNode {
   return node.kind === "file";
 }
 
-export function isScannableUri(uri: vscode.Uri): boolean {
-  const ext = path.extname(uri.fsPath).toLowerCase();
-  return SCANNABLE_EXTENSIONS.has(ext);
+export function isScanFolderNode(node: ScanNode): node is FolderNode {
+  return node.kind === "folder";
 }
+
+// Re-export so existing call sites continue to compile.
+export const isScannableUri = isScannableUriShared;
 
 // ── Provider ─────────────────────────────────────────────────────────────────
 
