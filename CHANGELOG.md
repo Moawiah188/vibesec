@@ -4,6 +4,93 @@ All notable changes to VibeSec are documented here.
 
 ---
 
+## [0.5.0] — Sprint 5 "Panel"
+
+### Overview
+Sprint 5 replaces VibeSec's two native TreeView panels with a single React-based analysis webview that lives in the activity-bar sidebar. The new panel is a faithful port of the design mockup at `Extension Design/VibeSec extension/vibesec-panel/` — file picker with checkboxes, severity-filtered finding cards with metadata grid (Category / Confidence / CWE / OWASP), expandable details, and a Full Fix tab that surfaces ready-to-paste AI prompts grouped per file. Severity is now aligned 1:1 with the YAML policy schema (`error` / `warning` / `info`), and findings carry colored callout-style left borders so errors and warnings are visible at a glance. Under the hood, Semgrep rule metadata is now forwarded losslessly into every `Finding`, which is what powers the panel's metadata grid.
+
+---
+
+### Added
+
+#### React Analysis Panel (sidebar webview view)
+- New `src/panelView.ts` — `PanelController` implementing `vscode.WebviewViewProvider`. Owns the sidebar webview, builds CSP-locked HTML with a per-render nonce, hosts the message bridge, and exposes `pushState()`, `pushProgress()`, `notifyPromptCopied()`, `reveal()`
+- New `webview/` source folder bundled by esbuild into `media/webview/`:
+  - `AnalysisPanel.tsx` — top-level component; renders empty / loading / populated / noFindings / error states and the Results / Full Fix tabs
+  - `FileTree.tsx` — multi-select file picker with checkboxes, indeterminate folder states, ext-color icons, and select-all / clear actions
+  - `VulnCard.tsx` — expandable finding card with severity tag, rule id, title, description, file:line jump-link, and a 2×2 metadata grid (Category / Confidence / CWE / OWASP)
+  - `FixFileGroup.tsx` — Full Fix tab's per-file prompt block (groups findings, exposes per-file Copy chip, calls into the existing prompt cache)
+  - `SegmentedTabs.tsx`, `icons.tsx`, `vscode.ts`, `main.tsx`, `types.ts` — supporting primitives
+  - `styles.css` — port of the design system (~1080 lines): dark + light themes, `vs-accent-green` / `vs-accent-mono` variants, `vs-density-comfortable` / `vs-density-compact`, callout-style severity borders, syntax tokens, animations, scrollbar treatments
+- New `src/panelMessages.ts` — discriminated-union message protocol shared between the extension and the React bundle (mirrored verbatim in `webview/types.ts`)
+- New `vibesec.analysisPanel` view registered under the existing `vibesec` activity-bar container as a webview view (replaces the old `vibesec.scanPanel` and `vibesec.findingsPanel` TreeViews)
+
+#### Build Pipeline
+- New `esbuild.webview.mjs` — IIFE-format browser bundle, no remote sources, no `eval`, `react` + `react-dom` bundled inline, optional `--watch` mode
+- New `webview/tsconfig.json` — `jsx: "react-jsx"`, `module: "esnext"`, `noEmit: true` (esbuild handles emission)
+- New npm scripts:
+  - `compile` now runs `tsc -p ./ && node esbuild.webview.mjs`
+  - `build:webview` and `watch:webview` for webview-only iterations
+- New devDependencies: `esbuild`, `react`, `react-dom`, `@types/react`, `@types/react-dom`
+
+#### Severity Tier Alignment + Callout Borders
+- Filter chips reduced from the design's four-tier (Critical / High / Medium / Low) to the YAML policy's three actual tiers (Error / Warning / Info), so the UI never lies about what the schema can express
+- New full-card-height callout-style left borders on finding cards (markdown blockquote vibe):
+  - **Error** → solid red (`var(--sev-critical)`)
+  - **Warning** → solid amber/yellow (`var(--sev-medium)`)
+  - **Info** → default subtle border (no callout treatment)
+- New severity tag pill rules (`.sev-tag-error`, `.sev-tag-warning`, `.sev-tag-info`) with both dark- and light-theme variants
+
+#### Generate Prompts Button (panel-side)
+- New `Wand` icon button in the panel side-header: pre-warms the prompt cache in the background by dispatching `vibesec.generatePrompts` (which respects the active `vibesec.promptMode` setting). Disabled until findings exist
+- New accent-styled **Generate** button in the Full Fix tab summary bar, next to **Copy all** — same dispatch, contextually obvious placement
+- Replaces the prior auto-on-scan generation pattern (it never auto-ran, but copy chips now have a clearer pre-warm path)
+
+#### Theme Bridging
+- Webview detects VS Code's body class on boot (`vscode-light`, `vscode-dark`, `vscode-high-contrast`, `vscode-high-contrast-light`) and applies the matching design class (`vs-theme-light` / `vs-theme-dark`)
+- Re-themes within ~1 frame on `vscode.window.onDidChangeActiveColorTheme` via a `themeChanged` postMessage
+- No `--vscode-*` token bridging — the design palette is preserved end-to-end for visual fidelity
+
+#### Lossless Semgrep Rule Metadata
+- `Finding.metadata` is a new optional `Record<string, unknown>` populated by the scanner directly from `semgrep --json`'s `extra.metadata` field. Whatever a rule (bundled, registry, or user-authored) carries — `cwe`, `owasp`, `references`, `likelihood`, `impact`, `technology`, `category`, `confidence` — flows untouched into the panel
+- The panel's metadata adapter (`toPanelMeta` in `panelMessages.ts`) safely extracts CWE / OWASP arrays, Category, and Confidence with em-dash fallbacks so the metadata grid never shows blank cells
+
+#### Broader Custom-Rule Schema
+- `CustomRule` now accepts `pattern-either`, `pattern-regex`, taint mode (`mode: "taint"` with `pattern-sources` + `pattern-sinks`), and any extra Semgrep-recognised field via an open index signature
+- Policy validation accepts any of: `pattern` / `patterns` / `pattern-either` / `pattern-regex`, OR taint mode with both sources and sinks
+- Rule bodies are now passed through to Semgrep losslessly (`{ ...raw, ...normalised-fields }`), so registry rules and future rule sources retain `fix`, `paths`, `options`, `pattern-not`, etc. without needing per-field allowlisting
+
+#### New Settings
+- `vibesec.openPanelOnScan` (boolean, default `false`) — when on, focus the analysis panel automatically whenever a scan starts
+
+---
+
+### Changed
+
+#### `src/extension.ts`
+- Removed both `createTreeView` calls (`vibesec.scanPanel`, `vibesec.findingsPanel`); `FindingsProvider` is kept as the in-memory single source of truth for findings + prompt cache, but no longer registered as a TreeDataProvider
+- New `PanelController` instantiation with hooks delegating back to `runScanOnTargets`, `goToFinding`, `copyPromptForFinding`, `copyPromptForFilePath`, `vibesec.copyPromptForAll`, `vibesec.generatePrompts`
+- `runScanOnTargets` now calls `panel.pushProgress(percent, basename)` once per file so the panel's progress bar advances in step with the existing notification progress
+- `vibesec.scanSelected` repurposed to read URIs from VS Code's Explorer right-click context (first arg = clicked URI, second arg = full multi-selection). The panel has its own internal file selection
+- Stale fs watcher and workspace folder listener removed — the panel rebuilds its tree on demand via `getWorkspaceTree`
+
+#### `package.json`
+- `contributes.views.vibesec` collapsed to a single `vibesec.analysisPanel` webview view
+- `contributes.viewsWelcome` cleared (the React panel handles all empty / error / no-findings states internally)
+- `contributes.menus`:
+  - All `view/title` and `view/item/*` entries scoped to the removed TreeViews dropped
+  - New `explorer/context` "Scan with VibeSec" entry on `vibesec.scanSelected`
+  - New `editor/title` "Scan Current File" entry on `vibesec.scanCurrentFile`
+- Version bumped to `0.5.0`
+
+### Removed
+- `vibesec.scanPanel` and `vibesec.findingsPanel` TreeView registrations
+- `vibesec.refreshScanTree` command (no provider to refresh)
+- `vibesec.openPanel` command (the sidebar view IS the panel — no command needed)
+- `src/scanProvider.ts` `ScanProvider` class, `ScanNode` types, `isScanFileNode` / `isScanFolderNode` helpers — file trimmed to a constants module exporting only `IGNORED_DIR_NAMES` (still used by both the multi-target scan walker and the panel's tree builder)
+
+---
+
 ## [0.4.0] — Sprint 4 "Prompts"
 
 ### Overview

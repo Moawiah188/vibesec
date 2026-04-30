@@ -16,13 +16,8 @@ import {
   isScannablePath,
 } from "./scannableExtensions";
 import { scanFile } from "./scanner";
-import {
-  IGNORED_DIR_NAMES,
-  ScanNode,
-  ScanProvider,
-  isScanFileNode,
-  isScanFolderNode,
-} from "./scanProvider";
+import { IGNORED_DIR_NAMES } from "./scanProvider";
+import { PanelController } from "./panelView";
 import {
   PROVIDER_LABEL,
   clearApiKey,
@@ -221,49 +216,38 @@ function showPolicyErrors(errors: string[], source: "load" | "reload"): void {
 // ── Activate ──────────────────────────────────────────────────────────────────
 
 export function activate(context: vscode.ExtensionContext): void {
-  // ── 1. Findings tree view ─────────────────────────────────────────────────
-  const findingsProvider = new FindingsProvider();
-  const treeView = vscode.window.createTreeView("vibesec.findingsPanel", {
-    treeDataProvider: findingsProvider,
-    showCollapseAll:  true,
-  });
-  treeView.message = findingsProvider.getViewMessage();
-
-  // ── 1b. Scan tree view (workspace files with multi-select) ────────────────
+  // ── 1. Findings state holder ──────────────────────────────────────────────
   //
-  // canSelectMany: true gives us the full-row blue highlight via the theme's
-  // list.activeSelectionBackground — no checkboxes, same UX as the native
-  // File Explorer (Ctrl/Cmd+click to add, Shift+click for range).
-  const scanProvider = new ScanProvider();
-  const scanTreeView = vscode.window.createTreeView("vibesec.scanPanel", {
-    treeDataProvider: scanProvider,
-    showCollapseAll:  true,
-    canSelectMany:    true,
+  // FindingsProvider is no longer registered as a TreeView — the analysis
+  // webview is the only UI surface. We keep the provider as the in-memory
+  // single source of truth for findings + the prompt cache.
+  const findingsProvider = new FindingsProvider();
+
+  // ── 1b. Analysis panel (sidebar webview view) ────────────────────────────
+  //
+  // The hooks delegate back to functions defined later in `activate`. They
+  // resolve at call-time, so the (hoisted) `runScanOnTargets`, `goToFinding`,
+  // `copyPromptForFinding`, `copyPromptForFilePath` declarations below are
+  // visible by the time the panel actually invokes them.
+  const panel = new PanelController(context, findingsProvider, {
+    runScanOnTargets:      (uris)     => runScanOnTargets(uris),
+    goToFinding:           (f)        => goToFinding(f),
+    copyPromptForFinding:  (f)        => copyPromptForFinding(f),
+    copyPromptForFilePath: (filePath) => copyPromptForFilePath(filePath),
+    copyPromptForAll:      async () => {
+      await vscode.commands.executeCommand("vibesec.copyPromptForAll");
+    },
+    generatePrompts:       async () => {
+      await vscode.commands.executeCommand("vibesec.generatePrompts");
+    },
   });
+  const panelView = vscode.window.registerWebviewViewProvider(
+    PanelController.viewId,
+    panel,
+    { webviewOptions: { retainContextWhenHidden: true } },
+  );
 
-  function refreshScanPanelState(): void {
-    const hasWorkspace = !!vscode.workspace.workspaceFolders?.length;
-    vscode.commands.executeCommand(
-      "setContext",
-      "vibesec.scanPanelState",
-      hasWorkspace ? "ready" : "noWorkspace",
-    );
-  }
-  refreshScanPanelState();
-
-  // Keep the Scan panel tree in sync with workspace folder and file changes.
-  const workspaceFolderListener =
-    vscode.workspace.onDidChangeWorkspaceFolders(() => {
-      refreshScanPanelState();
-      scanProvider.refresh();
-    });
-
-  // Light-weight file system watcher: rebuild the scan tree when files are
-  // created, deleted, or renamed anywhere in the workspace. We do NOT watch
-  // content changes — those don't affect the tree structure.
-  const fsWatcher = vscode.workspace.createFileSystemWatcher("**/*");
-  fsWatcher.onDidCreate(() => scanProvider.refresh());
-  fsWatcher.onDidDelete(() => scanProvider.refresh());
+  // The panel rebuilds its tree on demand via getWorkspaceTree.
 
   function getConfig() {
     const cfg = vscode.workspace.getConfiguration("vibesec");
@@ -306,17 +290,7 @@ export function activate(context: vscode.ExtensionContext): void {
   function updatePanel(state: PanelState): void {
     setContextState(state.kind);
     findingsProvider.setState(state);
-    treeView.message = findingsProvider.getViewMessage();
-
-    // Badge: show finding count, clear when no findings
-    if (state.kind === "findings") {
-      treeView.badge = {
-        value:   state.findings.length,
-        tooltip: `${state.findings.length} security issue${state.findings.length !== 1 ? "s" : ""} found`,
-      };
-    } else {
-      treeView.badge = undefined;
-    }
+    panel.pushState(state);
   }
 
   // ── Shared scan runner ───────────────────────────────────────────────────
@@ -379,6 +353,11 @@ export function activate(context: vscode.ExtensionContext): void {
     const aggregated: Finding[] = [];
     const failures: { filePath: string; message: string }[] = [];
 
+    // Reveal the analysis panel in the sidebar if the user opted in.
+    if (vscode.workspace.getConfiguration("vibesec").get<boolean>("openPanelOnScan", false)) {
+      panel.reveal();
+    }
+
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
@@ -389,6 +368,9 @@ export function activate(context: vscode.ExtensionContext): void {
         const total = expanded.length;
         const step  = 100 / total;
 
+        // Kick the panel into "loading" state with the first file showing.
+        panel.pushProgress(0, path.basename(expanded[0]));
+
         for (let i = 0; i < total; i++) {
           if (token.isCancellationRequested) { break; }
           const filePath = expanded[i];
@@ -396,6 +378,7 @@ export function activate(context: vscode.ExtensionContext): void {
             increment: i === 0 ? 0 : step,
             message:   `(${i + 1}/${total}) ${path.basename(filePath)}`,
           });
+          panel.pushProgress(Math.round((i / total) * 100), path.basename(filePath));
 
           try {
             const findings = await scanFile(filePath, policy, context.extensionPath, semgrepPath);
@@ -414,6 +397,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
         // Final tick so the bar reaches 100% before disappearing.
         progress.report({ increment: step });
+        panel.pushProgress(100, "");
       },
     );
 
@@ -467,34 +451,27 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // ── 2b. vibesec.scanSelected ─────────────────────────────────────────────
   //
-  // Reads the Scan panel's native selection (set via click / Ctrl+click /
-  // Shift+click) and scans every file selected, plus every scannable file
-  // underneath any selected folders.
+  // Now driven by the standard Explorer's right-click context menu. VS Code
+  // passes the clicked URI as the first argument and the full selection as
+  // the second argument when the menu is invoked from the Explorer.
   const scanSelectedCmd = vscode.commands.registerCommand(
     "vibesec.scanSelected",
-    async () => {
-      const selection = scanTreeView.selection;
-      const targets: vscode.Uri[] = selection
-        .filter((n: ScanNode) => isScanFileNode(n) || isScanFolderNode(n))
-        .map((n: ScanNode) => n.uri);
+    async (clicked?: vscode.Uri, selectedUris?: vscode.Uri[]) => {
+      const targets = (selectedUris && selectedUris.length > 0)
+        ? selectedUris
+        : clicked
+        ? [clicked]
+        : [];
 
       if (targets.length === 0) {
         vscode.window.showWarningMessage(
-          "VibeSec: Select one or more files or folders in the Scan panel first. " +
-          "(Click to select, Ctrl/Cmd+Click to add more, Shift+Click for a range.)",
+          "VibeSec: Right-click a file or folder in the Explorer and pick " +
+          "\"Scan with VibeSec\", or open the Analysis Panel to choose files.",
         );
         return;
       }
 
       await runScanOnTargets(targets);
-    },
-  );
-
-  // ── 2c. vibesec.refreshScanTree ──────────────────────────────────────────
-  const refreshScanTreeCmd = vscode.commands.registerCommand(
-    "vibesec.refreshScanTree",
-    () => {
-      scanProvider.refresh();
     },
   );
 
@@ -960,12 +937,11 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // ── 9. Settings change listener ──────────────────────────────────────────
   //
-  // Refresh the Scan tree when the file-extension list changes so the
-  // "not scannable" badges stay in sync with the user's preference.
-  const configListener = vscode.workspace.onDidChangeConfiguration((event) => {
-    if (event.affectsConfiguration("vibesec.fileExtensions")) {
-      scanProvider.refresh();
-    }
+  // The panel rebuilds its tree on next open via getWorkspaceTree, so this
+  // listener is currently a no-op placeholder. Kept so future settings (e.g.
+  // density / accent) can hook in without a structural change.
+  const configListener = vscode.workspace.onDidChangeConfiguration((_event) => {
+    /* noop for now */
   });
 
   const onSaveListener = vscode.workspace.onDidSaveTextDocument(async (document) => {
@@ -977,13 +953,10 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     diagnosticCollection,
-    treeView,
-    scanTreeView,
-    workspaceFolderListener,
-    fsWatcher,
+    panelView,
+    panel,
     scanCmd,
     scanSelectedCmd,
-    refreshScanTreeCmd,
     scanWorkspaceCmd,
     goToCmd,
     reloadCmd,

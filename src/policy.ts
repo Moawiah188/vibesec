@@ -4,7 +4,6 @@ import * as yaml from "js-yaml";
 import {
   CustomRule,
   FilePatterns,
-  PatternClause,
   PolicyConfig,
   RawPolicy,
   SEVERITY_RANK,
@@ -147,32 +146,52 @@ function parseCustomRule(
     ruleErrors.push(`rules[${index}].languages must be a non-empty array of strings`);
   }
 
-  const hasPattern  = typeof raw.pattern === "string" && raw.pattern.trim() !== "";
-  const hasPatterns = Array.isArray(raw.patterns) && raw.patterns.length > 0;
-  if (!hasPattern && !hasPatterns) {
-    ruleErrors.push(
-      `rules[${index}] must have either "pattern" (string) or "patterns" (array)`
-    );
+  // Pattern-shape validation: a rule must have at least one of the recognised
+  // top-level pattern shapes, OR be in taint mode with both sources and sinks.
+  // Inside the patterns themselves we don't validate — Semgrep's errors are
+  // more specific than anything we'd write here.
+  const hasPattern       = typeof raw.pattern === "string" && raw.pattern.trim() !== "";
+  const hasPatterns      = Array.isArray(raw.patterns) && raw.patterns.length > 0;
+  const hasPatternEither = Array.isArray(raw["pattern-either"]) && (raw["pattern-either"] as unknown[]).length > 0;
+  const hasPatternRegex  = typeof raw["pattern-regex"] === "string" && (raw["pattern-regex"] as string).trim() !== "";
+  const isTaintMode      = raw.mode === "taint";
+  const hasSources       = Array.isArray(raw["pattern-sources"]) && (raw["pattern-sources"] as unknown[]).length > 0;
+  const hasSinks         = Array.isArray(raw["pattern-sinks"])   && (raw["pattern-sinks"]   as unknown[]).length > 0;
+
+  if (isTaintMode) {
+    if (!hasSources || !hasSinks) {
+      ruleErrors.push(
+        `rules[${index}] uses "mode: taint" and must define non-empty "pattern-sources" and "pattern-sinks" arrays`
+      );
+    }
+  } else if (raw.mode === undefined || raw.mode === "search") {
+    if (!hasPattern && !hasPatterns && !hasPatternEither && !hasPatternRegex) {
+      ruleErrors.push(
+        `rules[${index}] must have one of: "pattern", "patterns", "pattern-either", "pattern-regex", or "mode: taint" with sources/sinks`
+      );
+    }
   }
+  // Other Semgrep modes (extract, join, …) pass through unchecked — Semgrep
+  // surfaces specific errors if their structure is wrong.
 
   if (ruleErrors.length > 0) {
     errors.push(...ruleErrors);
     return null;
   }
 
+  // Preserve every field from the raw YAML (fix, paths, options, mode-specific
+  // pattern-* fields, metadata, …) and only override the ones we strictly
+  // normalise. This is what makes the rule body lossless end-to-end: whatever
+  // a Semgrep registry rule or future rule source carries reaches the temp
+  // config Semgrep reads back, and reaches Finding.metadata in scanner.ts.
   const result: CustomRule = {
+    ...raw,
     id:        (raw.id as string).trim(),
     message:   (raw.message as string).trim(),
     // Semgrep requires uppercase severity in rule YAML
     severity:  normalizeSeverity(raw.severity as string).toUpperCase(),
     languages: raw.languages as string[],
-  };
-
-  if (hasPattern)  { result.pattern  = raw.pattern  as string; }
-  if (hasPatterns) { result.patterns = raw.patterns as PatternClause[]; }
-  if (isRecord(raw.metadata)) {
-    result.metadata = raw.metadata as CustomRule["metadata"];
-  }
+  } as CustomRule;
 
   return result;
 }

@@ -75,6 +75,10 @@ function parseSemgrepOutput(json: string): Finding[] {
     endLine:   (r.end?.line   ?? 1) - 1,
     endCol:    (r.end?.col    ?? 1) - 1,
     snippet:   r.extra?.lines ?? "",
+    // Semgrep echoes the matched rule's metadata back here. Preserved verbatim
+    // so the findings panel can render whatever fields are present (cwe, owasp,
+    // references, likelihood, impact, technology, …) without us pre-filtering.
+    metadata:  r.extra?.metadata,
   }));
 }
 

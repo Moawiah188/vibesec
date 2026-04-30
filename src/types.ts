@@ -1,4 +1,4 @@
-// ── Finding (Sprint 1 — unchanged) ───────────────────────────────────────────
+// ── Finding ──────────────────────────────────────────────────────────────────
 
 export interface Finding {
   ruleId: string;
@@ -10,6 +10,10 @@ export interface Finding {
   endLine: number;
   endCol: number;
   snippet: string;
+  // Whatever metadata Semgrep emits for the matched rule. Open by design so
+  // VibeSec rules, Semgrep registry rules (p/owasp-top-ten, p/cwe), and any
+  // future rule source can carry their full metadata through to the UI.
+  metadata?: Record<string, unknown>;
 }
 
 // ── Severity ──────────────────────────────────────────────────────────────────
@@ -25,25 +29,22 @@ export const SEVERITY_RANK: Record<SeverityLevel, number> = {
 
 // ── Custom Rules (Semgrep-shaped) ─────────────────────────────────────────────
 
-export interface CustomRuleMetadata {
-  category?:   string;
-  cwe?:        string;
-  confidence?: string;
-  [key: string]: string | undefined;  // extensible
-}
-
-/** A single pattern clause used inside a `patterns` array. */
-export interface PatternClause {
-  pattern?:              string;
-  "pattern-not"?:        string;
-  "pattern-inside"?:     string;
-  "pattern-not-inside"?: string;
-  "pattern-regex"?:      string;
-}
+/**
+ * A pattern clause is whatever Semgrep accepts inside a `patterns:` /
+ * `pattern-either:` / `pattern-sources:` / `pattern-sinks:` array. Kept open
+ * (`pattern`, `pattern-not`, `pattern-inside`, `pattern-not-inside`,
+ * `pattern-regex`, `pattern-not-regex`, `metavariable-pattern`,
+ * `metavariable-regex`, `focus-metavariable`, …). We don't validate the inside
+ * of patterns — Semgrep does, and its errors are more helpful than ours.
+ */
+export type PatternClause = Record<string, unknown>;
 
 /**
- * One custom rule definition, shaped after the real Semgrep rule schema.
- * `severity` is stored uppercase because Semgrep's inline YAML requires it
+ * One custom rule, shaped exactly like a Semgrep rule. Strict on identity and
+ * scan logic; permissive and lossless on everything else, so registry rules
+ * and future rule sources pass through with their full data intact.
+ *
+ * `severity` is stored uppercase because Semgrep's rule YAML requires it
  * (e.g. `severity: ERROR`). Normalisation happens during policy validation.
  */
 export interface CustomRule {
@@ -51,9 +52,24 @@ export interface CustomRule {
   message:   string;
   severity:  string;        // uppercase: ERROR | WARNING | INFO
   languages: string[];
-  pattern?:  string;        // single-pattern shorthand
-  patterns?: PatternClause[];
-  metadata?: CustomRuleMetadata;
+
+  // Pattern shapes — at least one is required (validated in policy.ts).
+  pattern?:           string;
+  patterns?:          PatternClause[];
+  "pattern-either"?:  PatternClause[];
+  "pattern-regex"?:   string;
+
+  // Taint analysis (alternative to the pattern shapes above).
+  mode?:              string;        // "search" (default) | "taint" | other
+  "pattern-sources"?: PatternClause[];
+  "pattern-sinks"?:   PatternClause[];
+
+  // Open metadata bag — preserved verbatim from the YAML source.
+  metadata?: Record<string, unknown>;
+
+  // Pass-through for any other Semgrep-recognised field (fix, paths, options,
+  // pattern-not, …). Forwarded to Semgrep without inspection.
+  [key: string]: unknown;
 }
 
 // ── Policy ────────────────────────────────────────────────────────────────────
