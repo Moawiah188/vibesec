@@ -1,3 +1,4 @@
+import { logBus } from "./logBus";
 import { LlmProvider } from "./types";
 
 // ── Thin LLM HTTP client (Sprint 4) ──────────────────────────────────────────
@@ -48,6 +49,35 @@ export async function callLlm(
   provider: LlmProvider,
   opts: LlmCallOptions,
 ): Promise<string> {
+  const start = Date.now();
+  logBus.info(
+    "api",
+    `${provider} request started`,
+    `model=${opts.model}\nprompt-length=${opts.prompt.length}`,
+  );
+  try {
+    const out = await dispatchProvider(provider, opts);
+    const ms = Date.now() - start;
+    logBus.info(
+      "api",
+      `${provider} request succeeded (${ms}ms)`,
+      `model=${opts.model}\nresponse-length=${out.length}`,
+    );
+    return out;
+  } catch (err: unknown) {
+    const ms = Date.now() - start;
+    const status = err instanceof LlmClientError ? err.statusCode : undefined;
+    const msg    = err instanceof Error ? err.message : String(err);
+    logBus.error(
+      "api",
+      `${provider} request failed${status !== undefined ? ` (HTTP ${status})` : ""} after ${ms}ms`,
+      `model=${opts.model}\n${msg}`,
+    );
+    throw err;
+  }
+}
+
+function dispatchProvider(provider: LlmProvider, opts: LlmCallOptions): Promise<string> {
   switch (provider) {
     case "openai":    return callOpenAI(opts);
     case "anthropic": return callAnthropic(opts);

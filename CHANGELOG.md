@@ -4,6 +4,83 @@ All notable changes to VibeSec are documented here.
 
 ---
 
+## [0.6.4] — Sprint 6 "Control Center"
+
+### Overview
+Sprint 6 adds a second webview — the **VibeSec Control Center** — that opens as a full editor-area tab next to the existing Analysis sidebar. It surfaces four pages (Dashboard / Settings / Logs / Rules) sourced live from the extension's own state, makes every `vibesec.*` setting two-way bindable from a real UI, persists scan history per-workspace, and ships a structured logging pipeline with disk persistence so users can inspect what happened during prior sessions. Visual direction is from the Claude Design output at `Extension Design/VibeSec Extension Webview/` (CDN React/Babel and Google Fonts stripped, all assets bundled locally to satisfy CSP). The existing Analysis sidebar is untouched.
+
+---
+
+### Added
+
+#### Control Center webview
+- New `src/controlCenterView.ts` — `ControlCenterController` hosting a singleton editor-area `WebviewPanel` (`vibesec.controlCenter`). Mirrors the patterns in `panelView.ts`: per-render CSP nonce, `localResourceRoots` locked to `media/`, theme bridge via `onDidChangeActiveColorTheme`, ready-handshake replay, `retainContextWhenHidden: true`. Subsequent `show()` calls reveal the existing panel rather than spawning a duplicate.
+- New `src/controlCenterMessages.ts` — discriminated-union wire protocol (mirrored verbatim in `webview/controlCenter/types.ts`). The `ready` → `init` handshake replays settings, scan history, log ring buffer, and the rules index in one message.
+- New command `vibesec.openControlCenter` ("Open Control Center") with `$(settings-gear)` icon.
+- New `view/title` menu binding so the gear button shows up in the Analysis sidebar's view title bar — both entry points open the same singleton panel.
+- New `webview/controlCenter/` source folder, bundled by esbuild into `media/webview/controlCenter.{js,css}` via a second entry point in `esbuild.webview.mjs` (`entryNames: '[name]'` keeps outputs flat).
+- Design CSS ported with two CSP-required substitutions: Google Fonts `@import` removed and `Geist` / `Geist Mono` rebound to `var(--vscode-font-family)` / `var(--vscode-editor-font-family)` so typography inherits the user's VS Code config.
+
+#### Settings page (Phase 1)
+- All 8 `vibesec.*` settings rendered as two-way-bound controls (text input / toggle / segmented enum), grouped per the design (Engine / Behavior / AI assistance).
+- Default values are read live from `cfg.inspect(key).defaultValue` — no hardcoded duplication of `package.json` defaults.
+- "Open settings.json" opens the workspace settings file (or user settings if no folder is open).
+- "Reset to defaults" prompts via `vscode.window.showWarningMessage({ modal: true })` and only proceeds on explicit confirmation; clears each key with `cfg.update(k, undefined, target)` so values fall back to the package.json declared defaults.
+- `vscode.workspace.onDidChangeConfiguration("vibesec")` listener pushes refreshed snapshots, keeping the UI in sync with external `settings.json` edits.
+
+#### Dashboard + Scan history (Phase 2)
+- New `src/scanHistoryStore.ts` — `workspaceState`-backed history capped at 200 entries; fires `onDidChange` after every mutation. Each entry tracks `{ ts, filesScanned, filesSkipped, duration, findings: { error, warning, info }, trigger }`.
+- `runScanOnTargets` now records a history entry on every non-empty completion. The `trigger` field is sourced from the call site: explorer right-click → `selection`, on-save → `onSave`, everything else → `manual`.
+- Dashboard renders:
+  - 1d / 7d / 30d range selector (re-bucketed client-side; no extra round-trip).
+  - Summary header: total findings, scan count, last-scan relative time, average duration, trigger label.
+  - Severity breakdown cards (error / warning / info) with percentage of total.
+  - Recent scans table (last 6 in range).
+  - Right rail: 4 quick-action tiles wired to existing commands (`scanWorkspace`, focus Analysis panel, `openPolicyFile`, `reloadPolicy`); environment card; SVG sparkline of findings per bucket.
+- "Clear history" affordance wipes `workspaceState` after a single confirmation.
+
+#### Logs page + persistent log pipeline (Phase 3)
+- New `src/logBus.ts` — process-wide singleton with `info / warn / error(type, msg, detail?)`, a 1000-event ring buffer, and a `subscribe()` API. Safe to import before activation.
+- New `src/logStore.ts` — JSON Lines persistence under `<globalStorageUri>/logs/vibesec.log`, with rotation to `vibesec.log.1` at ~2 MB. On activation, the store tail-loads up to 1000 events back into the bus's ring buffer so the Logs page shows prior-session events immediately.
+- Tee to `vscode.OutputChannel("VibeSec")` so users can read raw events from VS Code's standard Output panel.
+- Instrumentation (no behavior change):
+  - `src/scanner.ts` — fatal Semgrep exits log `semgrep error` with stderr; non-fatal stderr surfaces as `semgrep warn`.
+  - `src/policy.ts` — load success / read failure / YAML parse error / partial-failure all log `policy` events.
+  - `src/llmClient.ts` — `callLlm` is wrapped with start/success/error logs that include HTTP status and round-trip latency.
+  - `src/promptGenerator.ts` — `prompt` info events per per-vuln / per-file / per-project build, with provider + model.
+  - `src/extension.ts` — high-level `scan` events at start / cancel / complete / fully-failed; policy-excluded files batched into a single `skip warn`.
+- Logs page:
+  - Summary strip (total / errors / warnings / info).
+  - Type filter (scan / prompt / skip / semgrep / policy / api / other) + level filter + free-text search across `msg + detail`.
+  - Newest-first list, click-to-expand detail rows.
+  - **Copy** filtered events to clipboard; **Clear** truncates ring buffer + on-disk file.
+
+#### Rules page (Phase 4)
+- New `src/rulesIndex.ts` — parses bundled `rules/*.yaml` and (when present) the workspace `.vibesec.yaml`, normalizing both into a `RuleFileEntry[]` + `RuleEntry[]` shape that mirrors the design. Best-effort: malformed YAML produces an empty file with `parseError` set instead of throwing. Confidence ladder maps `HIGH=0.95` / `MEDIUM=0.7` / `LOW=0.4`.
+- Rules page renders:
+  - Summary card: total rules, bundled / custom / external file counts.
+  - Two-level navigation — file list grouped by source → per-file rule table.
+  - Per-file row: name, source chip, description, severity dots, rule count, parse-error indicator if applicable.
+  - Per-file detail: stat cards (Total / Enabled / Error / Warning / Info), search + severity filter, table with Severity / Rule (id + language tags) / Category / CWE / Confidence / On.
+  - **Open YAML** button on file headers posts `openRuleFile`; the controller resolves the absolute path and opens it in a regular editor tab via `workspace.openTextDocument` + `window.showTextDocument`.
+- File-system watchers on `**/.vibesec.yaml` and `<extensionUri>/rules/*.{yaml,yml}` push live `rulesUpdated` messages so edits in another tab reflect on the page without a manual refresh.
+- Per-rule live toggles are intentionally deferred — the toggle column displays current state but is read-only in v1. The "external" group renders as a disabled placeholder.
+
+#### Other
+- `webview/AnalysisPanel.tsx` and the Control Center now consume the version string from `init` messages (sourced from `context.extension.packageJSON.version`) instead of a hardcoded literal — future bumps are a single `package.json` edit.
+- New CSS primitives in `webview/controlCenter/controlCenter.css`: `.toggle`, `.segmented`, `.input`, `.settings-row`, `.kv-grid`, `.qa`, `.sev-card`, `.sev`, `.tag`, `.toast`, `.confidence-bar`/`.confidence-fill`, `.rule-file-row`, `.rule-source-tag`, `.rule-count-chip`, `.rules-header`, `.rule-row`, `.logs-header`, `.log-row`, `.log-detail`, `.search-wrap`, `.filter-row`, `.sidebar-version`.
+
+### Changed
+- `runScanOnTargets` now takes a `trigger` parameter; `vibesec.scanSelected` and the on-save handler pass it through. Cancelled scans with no findings are excluded from history to avoid noisy sparklines.
+- The on-save listener now calls `runScanOnFile` directly with `trigger="onSave"` instead of dispatching `vibesec.scanCurrentFile`, so the scan-history entry is tagged correctly.
+- Version bumped `0.5.0` → `0.6.4`. `package-lock.json` brought in sync (was still at `0.4.0`).
+
+### Build / pipeline
+- `esbuild.webview.mjs` now ships two entry pairs (Analysis panel + Control Center). `entryNames: '[name]'` keeps the output tree flat.
+- Both webview bundles remain CSP-clean: only React's bundled error-decoder URL and W3C namespace constants appear as literal strings; no remote network requests.
+
+---
+
 ## [0.5.0] — Sprint 5 "Panel"
 
 ### Overview

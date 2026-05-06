@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { callLlm } from "./llmClient";
+import { logBus } from "./logBus";
 import { Finding, LlmProvider } from "./types";
 
 // ── Prompt generation engine (Sprint 4) ──────────────────────────────────────
@@ -37,6 +38,12 @@ export async function generatePromptForVuln(
   opts: GenerateOptions,
 ): Promise<string> {
   const instruction = buildVulnInstruction(finding, opts.workspaceRoot);
+  logBus.info(
+    "prompt",
+    `Building per-vulnerability prompt (${finding.ruleId})`,
+    `file=${relativize(finding.filePath, opts.workspaceRoot)}:${finding.startLine + 1}\n` +
+      `provider=${opts.provider} model=${opts.model}`,
+  );
   return callLlm(opts.provider, {
     apiKey: opts.apiKey,
     model:  opts.model,
@@ -54,6 +61,12 @@ export async function generatePromptForFile(
     throw new Error("generatePromptForFile called with no findings.");
   }
   const instruction = buildFileInstruction(filePath, findings, opts.workspaceRoot);
+  logBus.info(
+    "prompt",
+    `Building per-file prompt — ${findings.length} finding${findings.length !== 1 ? "s" : ""}`,
+    `file=${relativize(filePath, opts.workspaceRoot)}\n` +
+      `provider=${opts.provider} model=${opts.model}`,
+  );
   return callLlm(opts.provider, {
     apiKey: opts.apiKey,
     model:  opts.model,
@@ -70,6 +83,11 @@ export async function generatePromptForProject(
     throw new Error("generatePromptForProject called with no findings.");
   }
   const instruction = buildProjectInstruction(findings, opts.workspaceRoot);
+  logBus.info(
+    "prompt",
+    `Building project-wide prompt — ${findings.length} finding${findings.length !== 1 ? "s" : ""}`,
+    `provider=${opts.provider} model=${opts.model}`,
+  );
   return callLlm(opts.provider, {
     apiKey: opts.apiKey,
     model:  opts.model,

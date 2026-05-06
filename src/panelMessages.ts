@@ -118,7 +118,7 @@ export type PanelStateMsg =
 // ── Wire types ────────────────────────────────────────────────────────────────
 
 export type ExtensionToWebview =
-  | { type: "init"; theme: ThemeKind; accent: "green"; density: "comfortable" }
+  | { type: "init"; theme: ThemeKind; accent: "green"; density: "comfortable"; version: string }
   | { type: "workspaceTree"; tree: PanelTreeNode[]; defaultSelected: string[] }
   | { type: "stateUpdated"; state: PanelStateMsg }
   | { type: "progressUpdated"; percent: number; currentFile: string }

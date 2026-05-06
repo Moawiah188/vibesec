@@ -18,6 +18,10 @@ import {
 import { scanFile } from "./scanner";
 import { IGNORED_DIR_NAMES } from "./scanProvider";
 import { PanelController } from "./panelView";
+import { ControlCenterController } from "./controlCenterView";
+import { logBus } from "./logBus";
+import { LogStore } from "./logStore";
+import { ScanHistoryStore } from "./scanHistoryStore";
 import {
   PROVIDER_LABEL,
   clearApiKey,
@@ -247,6 +251,28 @@ export function activate(context: vscode.ExtensionContext): void {
     { webviewOptions: { retainContextWhenHidden: true } },
   );
 
+  // ── 1c. Telemetry stores (scan history + log persistence) ────────────────
+  //
+  // Both must exist before the Control Center is constructed because the
+  // controller subscribes to their events in its ctor. The LogStore also
+  // tail-loads previous-session events into the bus's ring buffer so the
+  // Logs page shows history immediately on first open after a reload.
+  const scanHistory = new ScanHistoryStore(context);
+  const logStore    = new LogStore(context);
+
+  // ── 1d. Control Center (editor-area webview panel) ───────────────────────
+  //
+  // Singleton. Opened by the `vibesec.openControlCenter` command and by the
+  // gear button contributed under `view/title` for the Analysis panel.
+  const controlCenter = new ControlCenterController(context, {
+    scanHistory,
+    logStore,
+  });
+  const openControlCenterCmd = vscode.commands.registerCommand(
+    "vibesec.openControlCenter",
+    () => { controlCenter.show(); },
+  );
+
   // The panel rebuilds its tree on demand via getWorkspaceTree.
 
   function getConfig() {
@@ -300,7 +326,16 @@ export function activate(context: vscode.ExtensionContext): void {
   // files whose extension isn't in the configured fileExtensions set.
   // Each file still passes through the policy's `files.exclude` globs.
   // Findings from every file are aggregated into a single panel update.
-  async function runScanOnTargets(targets: vscode.Uri[]): Promise<void> {
+  //
+  // `trigger` tags the resulting scan-history entry — defaults to "manual"
+  // because that's the most common path (palette command, scan button). The
+  // explorer right-click menu passes "selection"; the auto-save handler
+  // passes "onSave".
+  async function runScanOnTargets(
+    targets: vscode.Uri[],
+    trigger: "manual" | "onSave" | "selection" = "manual",
+  ): Promise<void> {
+    const scanStartedAt = Date.now();
     if (targets.length === 0) {
       vscode.window.showWarningMessage("VibeSec: No files selected to scan.");
       return;
@@ -332,14 +367,34 @@ export function activate(context: vscode.ExtensionContext): void {
     const exts = getScannableExtensions();
     const expanded: string[] = [];
     const seen = new Set<string>();
+    let exploredCount = 0;
+    let excludedByPolicy: string[] = [];
     for (const uri of targets) {
       const expandedFiles = await expandTargetToFiles(uri.fsPath, exts);
       for (const fp of expandedFiles) {
+        exploredCount++;
         if (seen.has(fp)) { continue; }
-        if (isFileExcluded(fp, workspaceRoot, policy)) { continue; }
+        if (isFileExcluded(fp, workspaceRoot, policy)) {
+          excludedByPolicy.push(fp);
+          continue;
+        }
         seen.add(fp);
         expanded.push(fp);
       }
+    }
+    // Files that survived expansion but were dropped by policy globs. The
+    // expansion itself silently skips files outside `fileExtensions` — those
+    // are intentionally omitted from this count because they're never
+    // candidates for scanning. The Skipped tally only covers files the user
+    // could plausibly have expected to scan.
+    const filesSkipped = excludedByPolicy.length;
+    if (filesSkipped > 0) {
+      logBus.warn(
+        "skip",
+        `Skipped ${filesSkipped} file${filesSkipped !== 1 ? "s" : ""} (excluded by policy)`,
+        excludedByPolicy.slice(0, 25).map((p) => path.relative(workspaceRoot, p)).join("\n") +
+          (excludedByPolicy.length > 25 ? `\n…+${excludedByPolicy.length - 25} more` : ""),
+      );
     }
 
     if (expanded.length === 0) {
@@ -349,9 +404,16 @@ export function activate(context: vscode.ExtensionContext): void {
       return;
     }
 
+    logBus.info(
+      "scan",
+      `Scan started — ${expanded.length} file${expanded.length !== 1 ? "s" : ""} (${trigger})`,
+      `workspaceRoot=${workspaceRoot}\nexplored=${exploredCount} scannable=${expanded.length} skipped=${filesSkipped}`,
+    );
+
     const { semgrepPath, showInlineDecorations } = getConfig();
     const aggregated: Finding[] = [];
     const failures: { filePath: string; message: string }[] = [];
+    let cancelled = false;
 
     // Reveal the analysis panel in the sidebar if the user opted in.
     if (vscode.workspace.getConfiguration("vibesec").get<boolean>("openPanelOnScan", false)) {
@@ -372,7 +434,7 @@ export function activate(context: vscode.ExtensionContext): void {
         panel.pushProgress(0, path.basename(expanded[0]));
 
         for (let i = 0; i < total; i++) {
-          if (token.isCancellationRequested) { break; }
+          if (token.isCancellationRequested) { cancelled = true; break; }
           const filePath = expanded[i];
           progress.report({
             increment: i === 0 ? 0 : step,
@@ -401,10 +463,26 @@ export function activate(context: vscode.ExtensionContext): void {
       },
     );
 
+    const duration = Date.now() - scanStartedAt;
+
+    if (cancelled) {
+      logBus.warn(
+        "scan",
+        `Scan cancelled after ${duration}ms`,
+        `processed=${aggregated.length + failures.length}/${expanded.length}`,
+      );
+    }
+
     // ── Present results ─────────────────────────────────────────────────────
     if (aggregated.length === 0 && failures.length > 0 && failures.length === expanded.length) {
       // Every file failed. Surface the first error.
       const first = failures[0];
+      logBus.error(
+        "scan",
+        `Scan failed — every file errored (${duration}ms)`,
+        `first=${path.basename(first.filePath)}: ${first.message}\n` +
+          `total-failures=${failures.length}`,
+      );
       updatePanel({ kind: "error", message: first.message });
       vscode.window.showErrorMessage(
         `VibeSec scan failed: ${first.message}` +
@@ -413,15 +491,42 @@ export function activate(context: vscode.ExtensionContext): void {
       return;
     }
 
+    // Tally final findings by severity for both the history entry and the log.
+    const tally = { error: 0, warning: 0, info: 0 };
+    for (const f of aggregated) { tally[f.severity]++; }
+
+    // Persist to scan history. Cancelled-with-no-findings is intentionally
+    // dropped — it would just create misleading sparkline entries.
+    if (!(cancelled && aggregated.length === 0)) {
+      void scanHistory.record({
+        ts: scanStartedAt,
+        filesScanned: expanded.length,
+        filesSkipped,
+        duration,
+        findings: { ...tally },
+        trigger,
+      });
+    }
+
     if (aggregated.length === 0) {
+      logBus.info(
+        "scan",
+        `Scan completed — no findings in ${expanded.length} file${expanded.length !== 1 ? "s" : ""} (${duration}ms)`,
+        `trigger=${trigger} failures=${failures.length}`,
+      );
       updatePanel({ kind: "noFindings" });
       const suffix = failures.length > 0
         ? ` (${failures.length} file${failures.length !== 1 ? "s" : ""} failed to scan — see Output.)`
         : "";
       vscode.window.showInformationMessage(`VibeSec: No issues found in ${expanded.length} file${expanded.length !== 1 ? "s" : ""}.${suffix}`);
     } else {
-      updatePanel({ kind: "findings", findings: aggregated });
       const fileCount = new Set(aggregated.map((f) => f.filePath)).size;
+      logBus.info(
+        "scan",
+        `Scan completed — ${aggregated.length} finding${aggregated.length !== 1 ? "s" : ""} across ${fileCount} file${fileCount !== 1 ? "s" : ""} (${duration}ms)`,
+        `trigger=${trigger} severity: error=${tally.error} warning=${tally.warning} info=${tally.info} failures=${failures.length}`,
+      );
+      updatePanel({ kind: "findings", findings: aggregated });
       const suffix = failures.length > 0
         ? ` (${failures.length} file${failures.length !== 1 ? "s" : ""} failed to scan.)`
         : "";
@@ -432,8 +537,11 @@ export function activate(context: vscode.ExtensionContext): void {
   }
 
   /** Single-file convenience wrapper for the scanCurrentFile command. */
-  async function runScanOnFile(filePath: string): Promise<void> {
-    await runScanOnTargets([vscode.Uri.file(filePath)]);
+  async function runScanOnFile(
+    filePath: string,
+    trigger: "manual" | "onSave" | "selection" = "manual",
+  ): Promise<void> {
+    await runScanOnTargets([vscode.Uri.file(filePath)], trigger);
   }
 
   // ── 2. vibesec.scanCurrentFile ────────────────────────────────────────────
@@ -471,7 +579,7 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
 
-      await runScanOnTargets(targets);
+      await runScanOnTargets(targets, "selection");
     },
   );
 
@@ -948,13 +1056,18 @@ export function activate(context: vscode.ExtensionContext): void {
     if (!getConfig().autoScanOnSave) { return; }
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.document.uri.fsPath !== document.uri.fsPath) { return; }
-    await vscode.commands.executeCommand("vibesec.scanCurrentFile");
+    // Bypass the scanCurrentFile command so we can tag the trigger correctly.
+    await runScanOnFile(document.uri.fsPath, "onSave");
   });
 
   context.subscriptions.push(
     diagnosticCollection,
+    scanHistory,
+    logStore,
     panelView,
     panel,
+    controlCenter,
+    openControlCenterCmd,
     scanCmd,
     scanSelectedCmd,
     scanWorkspaceCmd,

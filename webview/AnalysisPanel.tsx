@@ -30,6 +30,7 @@ interface Props {
   selected: Set<string>;
   onSelectionChange: (s: Set<string>) => void;
   logoUri:  string;
+  version:  string;
 }
 
 type Tab = "results" | "fullfix";
@@ -98,6 +99,7 @@ export const AnalysisPanel: React.FC<Props> = ({
   selected,
   onSelectionChange,
   logoUri,
+  version,
 }) => {
   const [tab, setTab] = useState<Tab>("results");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -231,7 +233,7 @@ export const AnalysisPanel: React.FC<Props> = ({
             <div className="vs-an-titlerow">
               {logoUri && <img className="vs-an-logo" src={logoUri} alt="" />}
               <span className="vs-an-title">Analysis</span>
-              <span className="vs-an-version">v0.4.0</span>
+              {version && <span className="vs-an-version">v{version}</span>}
             </div>
             <div className="vs-an-sub">
               Scan source for vulnerabilities and generate ready-to-paste fix prompts.
@@ -603,7 +605,7 @@ export const AnalysisPanel: React.FC<Props> = ({
             findings <span style={{ color: "var(--text)" }}>{findings.length}</span>
           </span>
           <span className="vs-spacer" />
-          <span className="vs-status-item">VibeSec 0.4.0</span>
+          {version && <span className="vs-status-item">VibeSec {version}</span>}
         </div>
 
         {toast && (

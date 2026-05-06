@@ -27,12 +27,14 @@ const App: React.FC<AppProps> = ({ logoUri }) => {
   const [state, setState] = useState<PanelStateMsg>({ kind: "empty" });
   const [tree, setTree] = useState<PanelTreeNode[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [version, setVersion] = useState<string>("");
 
   useEffect(() => {
     const off = onMessage((msg: ExtensionToWebview) => {
       switch (msg.type) {
         case "init":
           setTheme(msg.theme);
+          setVersion(msg.version);
           break;
         case "themeChanged":
           setTheme(msg.theme);
@@ -75,6 +77,7 @@ const App: React.FC<AppProps> = ({ logoUri }) => {
         selected={selected}
         onSelectionChange={setSelected}
         logoUri={logoUri}
+        version={version}
       />
     </div>
   );

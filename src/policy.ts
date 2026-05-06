@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as yaml from "js-yaml";
+import { logBus } from "./logBus";
 import {
   CustomRule,
   FilePatterns,
@@ -339,6 +340,11 @@ export function loadPolicy(workspaceRoot: string): PolicyLoadResult {
 
   // Missing file is not an error — inform user and use defaults
   if (!fs.existsSync(policyPath)) {
+    logBus.info(
+      "policy",
+      "No .vibesec.yaml — falling back to default policy",
+      `workspaceRoot=${workspaceRoot}\npresets=${DEFAULT_PRESETS.join(", ")}`,
+    );
     return {
       ok: false,
       policy: getDefaultPolicy(),
@@ -354,6 +360,7 @@ export function loadPolicy(workspaceRoot: string): PolicyLoadResult {
     content = fs.readFileSync(policyPath, "utf-8");
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
+    logBus.error("policy", "Could not read .vibesec.yaml", `path=${policyPath}\n${msg}`);
     return {
       ok: false,
       policy: getDefaultPolicy(),
@@ -366,6 +373,7 @@ export function loadPolicy(workspaceRoot: string): PolicyLoadResult {
     raw = yaml.load(content);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
+    logBus.error("policy", "Invalid YAML syntax in .vibesec.yaml", `path=${policyPath}\n${msg}`);
     return {
       ok: false,
       policy: getDefaultPolicy(),
@@ -423,7 +431,19 @@ export function loadPolicy(workspaceRoot: string): PolicyLoadResult {
   };
 
   if (errors.length > 0) {
+    logBus.warn(
+      "policy",
+      `Policy loaded with ${errors.length} error${errors.length !== 1 ? "s" : ""}`,
+      `path=${policyPath}\n${errors.join("\n")}`,
+    );
     return { ok: false, policy, errors };
   }
+  logBus.info(
+    "policy",
+    `Policy loaded (${policy.presets.length} preset${policy.presets.length !== 1 ? "s" : ""}, ` +
+      `${policy.rules.length} custom rule${policy.rules.length !== 1 ? "s" : ""})`,
+    `path=${policyPath}\nminSeverity=${policy.severity.minSeverity}\n` +
+      `excludeGlobs=${policy.files.exclude.length}`,
+  );
   return { ok: true, policy };
 }

@@ -44,6 +44,11 @@ No accounts. No cloud. No telemetry. Everything runs on your machine.
 | AI fix prompts (OpenAI / Anthropic / Gemini) | ✅ v0.4.0 |
 | Secure API key storage | ✅ v0.4.0 |
 | Copy-paste prompts per finding, file, or project | ✅ v0.4.0 |
+| Analysis panel (React webview, sidebar) | ✅ v0.5.0 |
+| Control Center (Dashboard / Settings / Logs / Rules) | ✅ v0.6.4 |
+| Persistent scan history + sparkline | ✅ v0.6.4 |
+| Structured logs with disk persistence + Output channel | ✅ v0.6.4 |
+| Rule index browser with Open YAML | ✅ v0.6.4 |
 
 ---
 
@@ -231,7 +236,9 @@ Languages covered: **Python, JavaScript, TypeScript**
 - **v0.2.0** — Sprint 2 "Policy": policy file, findings panel, bundled ruleset ✅
 - **v0.3.0** — Sprint 3 "Interface": activity bar, scan panel, redesigned findings tree ✅
 - **v0.4.0** — Sprint 4 "Prompts": multi-file scan, AI fix prompts, API key management ✅
-- **Next** — Unified analysis tab, in-extension fix workflow
+- **v0.5.0** — Sprint 5 "Panel": React analysis sidebar, Full Fix tab, severity callouts ✅
+- **v0.6.4** — Sprint 6 "Control Center": editor-area Dashboard / Settings / Logs / Rules, persistent scan history, structured logging ✅
+- **Next** — Live per-rule toggles, external rule registries, in-extension fix workflow
 
 ---
 

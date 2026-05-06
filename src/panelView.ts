@@ -138,11 +138,14 @@ export class PanelController
     switch (msg.type) {
       case "ready": {
         // Replay current state and theme on connect/reconnect.
+        const version =
+          (this.context.extension.packageJSON?.version as string | undefined) ?? "unknown";
         this.postMessage({
           type: "init",
           theme: this.detectTheme(),
           accent: "green",
           density: "comfortable",
+          version,
         });
         this.postMessage({
           type: "stateUpdated",

@@ -2,6 +2,7 @@ import { execFile } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import { logBus } from "./logBus";
 import { Finding, PolicyConfig, SEVERITY_RANK, SeverityLevel } from "./types";
 
 // ── Severity helpers ──────────────────────────────────────────────────────────
@@ -209,8 +210,25 @@ export function scanFile(
           const detail = stderr.trim() || error.message;
           // Surface the first non-empty line of stderr — it's usually the most useful
           const firstLine = detail.split("\n").find((l) => l.trim() !== "") ?? detail;
+          logBus.error(
+            "semgrep",
+            `Semgrep exited with status ${error.code ?? "?"} on ${path.basename(filePath)}`,
+            `binary=${semgrepPath}\nfile=${filePath}\nstderr: ${detail}`,
+          );
           reject(new Error(`Semgrep failed (exit ${error.code ?? "?"}): ${firstLine}`));
           return;
+        }
+        // Surface non-fatal stderr noise (deprecation hints, version warnings,
+        // ignored config) so power users can spot Semgrep complaints in the
+        // Logs page without watching the OutputChannel themselves.
+        if (stderr.trim() !== "") {
+          const firstLine = stderr.split("\n").find((l) => l.trim() !== "") ?? stderr;
+          logBus.warn(
+            "semgrep",
+            `Semgrep wrote to stderr while scanning ${path.basename(filePath)}`,
+            `file=${filePath}\nstderr: ${stderr.trim()}`,
+          );
+          void firstLine;
         }
 
         let allFindings: Finding[];
