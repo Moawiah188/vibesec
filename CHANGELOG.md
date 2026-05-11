@@ -4,6 +4,62 @@ All notable changes to VibeSec are documented here.
 
 ---
 
+## [0.7.0] — Sprint 7 "Taint"
+
+### Overview
+Sprint 7 adds **taint analysis** — tracking how untrusted data flows from a *source* (user input, file read, environment variable) through assignments and helper calls to a *sink* (shell exec, SQL query, deserializer, HTTP request) within a single file. Built on Semgrep's free `mode: taint` engine — no Semgrep Pro, no new dependencies, no auth. The data flow is surfaced as a dedicated **Data flow** block in every taint-finding card with click-to-jump rows for source / intermediates / sink, included in every AI fix prompt so the model knows exactly where to sanitise, and flagged with a **TAINT** chip on the Control Center's Rules page.
+
+---
+
+### Added
+
+#### Bundled taint ruleset (`rules/taint.yaml`)
+- New `vibesec:taint` preset — 8 hand-written taint-mode rules across Python and JS/TS:
+  - `vibesec.taint-command-injection-python` — `request.* / sys.argv / os.environ` → `subprocess.*(shell=True) / os.system / os.popen`, sanitised by `shlex.quote`.
+  - `vibesec.taint-command-injection-node` — `req.body/query/params/headers/cookies / process.argv / process.env` → `child_process.exec*`.
+  - `vibesec.taint-sql-injection-node` — `req.*` → `db.query/execute/run/all/get`.
+  - `vibesec.taint-path-traversal-python` — `request.* / sys.argv / input()` → `open() / os.path.join`.
+  - `vibesec.taint-path-traversal-node` — `req.*` → `fs.readFile* / fs.createReadStream`.
+  - `vibesec.taint-unsafe-deserialization-python` — `request.* / sys.stdin.read()` → `pickle.loads / pickle.load / yaml.load`.
+  - `vibesec.taint-xss-node` — `req.*` → `res.send / res.write / innerHTML / outerHTML / document.write`.
+  - `vibesec.taint-ssrf-python` — `request.*` → `requests.get/post/request / urllib*.urlopen / httpx.*`.
+- Opt-in via `presets: [vibesec:taint]` in `.vibesec.yaml`. The default policy template now ships a commented-out reference line so users see the option.
+
+#### Scanner — dataflow extraction
+- `src/scanner.ts` now parses `extra.dataflow_trace` from Semgrep's JSON output into a structured `Finding.taint` field. Defensive parser handles the `["CliLoc"|"CliCall", {...}]` tagged-tuple shape Semgrep emits, with graceful fallback to the finding's own location if the trace is partial.
+- Each taint finding emits a dedicated `scan` info log (`Taint: <rule> — source L42 → sink L58`) so the Logs page shows the data flow without extra UI.
+
+#### Finding type + panel adapter
+- New `TaintFlow` and `TaintLocation` types in `src/types.ts`. `Finding.taint?` is optional — search-mode findings are unchanged.
+- `PanelFinding.taint?` mirrors the same shape with workspace-relative paths. `webview/types.ts` updated in lockstep.
+- New `goToLocation` wire message (`{ absPath, line }`) lets the React panel jump to arbitrary file:line — used by every step in a Data flow block.
+
+#### Data flow UI in `VulnCard.tsx`
+- New collapsible **Data flow** section below the metadata grid, rendered only when the finding carries taint data.
+- Three row types: **SOURCE** (where untrusted data enters), **STEP N** (intermediate variable assignments), **SINK** (the dangerous call). Sink row uses a red callout border so the danger point is visually distinct.
+- Each row is a button that dispatches `goToLocation` — one click opens the file and selects the line.
+- A small accent-colored `TAINT` chip in the section header signals the analysis mode.
+
+#### AI fix prompts include data flow
+- `buildVulnInstruction` (per-vuln) injects a dedicated "Data flow:" section listing source, intermediate steps, and sink — each on its own line with the relevant snippet. The numbered checklist that follows adds an explicit step: *Identify where to sanitise or validate the data along the source-to-sink path.*
+- `buildFileInstruction` (per-file) and `buildProjectInstruction` (per-project) tag each taint finding with a compact `taint: src L42 → sink L58` annotation so file-level and project-level prompts stay scannable.
+
+#### Control Center Rules page
+- `RuleEntry` gains a `mode: "search" | "taint"` field. `rulesIndex.ts` reads `mode` from raw YAML; `webview/controlCenter/types.ts` updated in lockstep.
+- Each taint rule renders a small accent-colored `TAINT` chip next to its title in the Rules page detail table.
+- The bundled `taint.yaml` file gets a hand-tuned description: *"Taint analysis — tracks user input from source to dangerous sink within a file."*
+
+---
+
+### Changed
+- `vscode.ExtensionContext.subscriptions` registers no new disposables — taint integration reuses every existing channel (diagnostics, log bus, panel state, scan history).
+- Version bumped `0.6.4` → `0.7.0`.
+
+### Build / pipeline
+- No new dependencies. No new build steps. `npm run compile` and the existing F5 launch configuration cover the full sprint.
+
+---
+
 ## [0.6.4] — Sprint 6 "Control Center"
 
 ### Overview

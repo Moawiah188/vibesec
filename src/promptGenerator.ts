@@ -138,7 +138,7 @@ function buildVulnInstruction(finding: Finding, workspaceRoot?: string): string 
   const lineNum = finding.startLine + 1;
   const context = getContextBlock(finding);
 
-  return [
+  const out: string[] = [
     "You are a senior application security engineer helping a developer fix a vulnerability.",
     "Produce a single fix-prompt that the developer can paste into an AI coding assistant (Cursor, Claude Code, ChatGPT, etc.) to get a correct, minimal patch.",
     "",
@@ -148,20 +148,40 @@ function buildVulnInstruction(finding: Finding, workspaceRoot?: string): string 
     `  • Rule:     ${finding.ruleId}`,
     `  • Severity: ${finding.severity}`,
     `  • Issue:    ${finding.message}`,
-    "",
-    "Code context (the offending lines are marked with `>`):",
-    "```",
-    context,
-    "```",
-    "",
-    "Your output must:",
-    "  1. Briefly explain *why* the code is unsafe (1–2 sentences).",
-    "  2. State the exact change to make, in plain language.",
-    "  3. Show a corrected code snippet using a fenced code block.",
-    "  4. Note any follow-up checks the developer should run (tests, dependency updates).",
-    "",
-    "Respond with the prompt only — no preamble, no closing remarks. The user will copy it verbatim.",
-  ].join("\n");
+  ];
+
+  if (finding.taint) {
+    out.push("");
+    out.push("Data flow (taint analysis — source → sink):");
+    out.push(`  Source: line ${finding.taint.source.line + 1} — ${finding.taint.source.snippet || "(no snippet)"}`);
+    for (let i = 0; i < finding.taint.intermediates.length; i++) {
+      const iv = finding.taint.intermediates[i];
+      out.push(`  Step ${i + 1}: line ${iv.line + 1} — ${iv.snippet || "(no snippet)"}`);
+    }
+    out.push(`  Sink:   line ${finding.taint.sink.line + 1} — ${finding.taint.sink.snippet || "(no snippet)"}`);
+  }
+
+  out.push("");
+  out.push("Code context (the offending lines are marked with `>`):");
+  out.push("```");
+  out.push(context);
+  out.push("```");
+  out.push("");
+  out.push("Your output must:");
+  out.push("  1. Briefly explain *why* the code is unsafe (1–2 sentences).");
+  if (finding.taint) {
+    out.push("  2. Identify where to sanitise or validate the data along the source-to-sink path.");
+    out.push("  3. State the exact change to make, in plain language.");
+    out.push("  4. Show a corrected code snippet using a fenced code block.");
+    out.push("  5. Note any follow-up checks the developer should run (tests, dependency updates).");
+  } else {
+    out.push("  2. State the exact change to make, in plain language.");
+    out.push("  3. Show a corrected code snippet using a fenced code block.");
+    out.push("  4. Note any follow-up checks the developer should run (tests, dependency updates).");
+  }
+  out.push("");
+  out.push("Respond with the prompt only — no preamble, no closing remarks. The user will copy it verbatim.");
+  return out.join("\n");
 }
 
 function buildFileInstruction(
@@ -184,6 +204,9 @@ function buildFileInstruction(
     lines.push(`  • Rule:     ${f.ruleId}`);
     lines.push(`  • Severity: ${f.severity}`);
     lines.push(`  • Issue:    ${f.message}`);
+    if (f.taint) {
+      lines.push(`  • Taint:    source L${f.taint.source.line + 1} → sink L${f.taint.sink.line + 1}`);
+    }
     lines.push("  • Context:");
     lines.push("    ```");
     lines.push(indent(getContextBlock(f), "    "));
@@ -226,7 +249,10 @@ function buildProjectInstruction(
     fileIndex++;
     for (let i = 0; i < fileFindings.length; i++) {
       const f = fileFindings[i];
-      lines.push(`  - Line ${f.startLine + 1} · ${f.severity.toUpperCase()} · ${f.ruleId}`);
+      const taintNote = f.taint
+        ? ` · taint: src L${f.taint.source.line + 1} → sink L${f.taint.sink.line + 1}`
+        : "";
+      lines.push(`  - Line ${f.startLine + 1} · ${f.severity.toUpperCase()} · ${f.ruleId}${taintNote}`);
       lines.push(`      ${f.message}`);
       lines.push("      Context:");
       lines.push("      ```");

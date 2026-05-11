@@ -14,6 +14,29 @@ export interface Finding {
   // VibeSec rules, Semgrep registry rules (p/owasp-top-ten, p/cwe), and any
   // future rule source can carry their full metadata through to the UI.
   metadata?: Record<string, unknown>;
+  // Populated only for taint-mode findings (Sprint 7). Parsed from Semgrep's
+  // `extra.dataflow_trace` — source, sink, and intermediate variable hops.
+  // Absent for regular pattern-based findings.
+  taint?: TaintFlow;
+}
+
+// ── Taint flow (Sprint 7) ─────────────────────────────────────────────────────
+
+/** One step in a taint flow — a source, an intermediate variable, or a sink. */
+export interface TaintLocation {
+  /** Absolute path to the file holding this step. */
+  filePath: string;
+  /** 0-based line for VS Code, matching the Finding shape. */
+  line: number;
+  /** Source snippet for this step (single line, may be empty). */
+  snippet: string;
+}
+
+export interface TaintFlow {
+  source: TaintLocation;
+  sink:   TaintLocation;
+  /** Zero or more variable assignments between source and sink. */
+  intermediates: TaintLocation[];
 }
 
 // ── Severity ──────────────────────────────────────────────────────────────────

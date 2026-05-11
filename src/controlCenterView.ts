@@ -416,7 +416,7 @@ export class ControlCenterController implements vscode.Disposable {
       vscode.Uri.joinPath(
         this.context.extensionUri,
         "media",
-        "webview",
+        "design",
         "controlCenter.js",
       ),
     );
@@ -424,7 +424,7 @@ export class ControlCenterController implements vscode.Disposable {
       vscode.Uri.joinPath(
         this.context.extensionUri,
         "media",
-        "webview",
+        "design",
         "controlCenter.css",
       ),
     );

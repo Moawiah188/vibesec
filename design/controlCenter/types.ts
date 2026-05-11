@@ -60,6 +60,7 @@ export interface LogEvent {
 // ── Rules ────────────────────────────────────────────────────────────────────
 
 export type RuleSource = "bundled" | "custom" | "external";
+export type RuleMode = "search" | "taint";
 export type Severity = "error" | "warning" | "info";
 
 export interface RuleEntry {
@@ -74,6 +75,7 @@ export interface RuleEntry {
   owasp:   string;
   conf:    number;
   source:  RuleSource;
+  mode:    RuleMode;
   enabled: boolean;
 }
 

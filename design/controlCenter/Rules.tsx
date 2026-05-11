@@ -418,8 +418,27 @@ const RuleRow: React.FC<{ rule: RuleEntry }> = ({ rule }) => {
     <div className="rule-row" style={{ opacity: rule.enabled ? 1 : 0.5 }}>
       <span className={`sev sev-${rule.sev}`}>{rule.sev}</span>
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 12.5, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {rule.name}
+        <div style={{ fontSize: 12.5, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{rule.name}</span>
+          {rule.mode === "taint" && (
+            <span
+              className="mono"
+              style={{
+                fontSize: 9.5,
+                fontWeight: 600,
+                letterSpacing: "0.06em",
+                color: "var(--accent)",
+                background: "var(--accent-soft)",
+                border: "1px solid var(--accent-border)",
+                borderRadius: 3,
+                padding: "1px 5px",
+                flexShrink: 0,
+              }}
+              title="Tracks data flow from source to sink"
+            >
+              TAINT
+            </span>
+          )}
         </div>
         <div className="mono faint" style={{ fontSize: 10.5, marginTop: 1 }}>{rule.ruleId}</div>
         {rule.langs.length > 0 && (

@@ -72,6 +72,22 @@ export function prettifyRuleTitle(ruleId: string): string {
 
 // ── Panel-side finding shape (post-adapter) ───────────────────────────────────
 
+export interface PanelTaintStep {
+  /** Workspace-relative POSIX path for display. */
+  path:    string;
+  /** Absolute fs path — used by goToLocation. */
+  absPath: string;
+  /** 1-based line number for display. */
+  line:    number;
+  snippet: string;
+}
+
+export interface PanelTaint {
+  source:        PanelTaintStep;
+  sink:          PanelTaintStep;
+  intermediates: PanelTaintStep[];
+}
+
 export interface PanelFinding {
   /** Stable id = findingId(f) from src/types.ts */
   id:        string;
@@ -87,6 +103,8 @@ export interface PanelFinding {
   /** 1-based line number for display. */
   line:      number;
   meta:      PanelMeta;
+  /** Present only for taint-mode findings (Sprint 7). */
+  taint?:    PanelTaint;
 }
 
 // ── File tree node (sent to webview's FileTree component) ────────────────────
@@ -132,6 +150,7 @@ export type WebviewToExtension =
   | { type: "scanRequested"; filePaths: string[] }
   | { type: "scanCancel" }
   | { type: "goToFinding"; findingId: string }
+  | { type: "goToLocation"; absPath: string; line: number }
   | { type: "copyPromptForVuln"; findingId: string }
   | { type: "copyPromptForFile"; filePath: string }
   | { type: "copyPromptForAll" }
@@ -144,7 +163,7 @@ export function toPanelFinding(f: Finding, workspaceRoot: string | undefined): P
   const meta = toPanelMeta(f.metadata);
   const id = `${f.filePath}:${f.startLine}:${f.startCol}:${f.ruleId}`;
   const path = relativePosix(f.filePath, workspaceRoot);
-  return {
+  const out: PanelFinding = {
     id,
     ruleId:   f.ruleId,
     severity,
@@ -156,6 +175,20 @@ export function toPanelFinding(f: Finding, workspaceRoot: string | undefined): P
     line:     f.startLine + 1,
     meta,
   };
+  if (f.taint) {
+    const step = (s: import("./types").TaintLocation): PanelTaintStep => ({
+      path:    relativePosix(s.filePath, workspaceRoot),
+      absPath: s.filePath,
+      line:    s.line + 1,
+      snippet: s.snippet,
+    });
+    out.taint = {
+      source:        step(f.taint.source),
+      sink:          step(f.taint.sink),
+      intermediates: f.taint.intermediates.map(step),
+    };
+  }
+  return out;
 }
 
 function relativePosix(absPath: string, workspaceRoot: string | undefined): string {

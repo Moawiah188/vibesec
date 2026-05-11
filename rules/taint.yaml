@@ -1,0 +1,286 @@
+# VibeSec Taint Ruleset
+#
+# Intra-file taint analysis using Semgrep's free `mode: taint` engine.
+# Each rule defines:
+#   • pattern-sources    — where untrusted data enters (request bodies, argv, env)
+#   • pattern-sinks      — where it becomes dangerous (exec, query, fs, deserialize)
+#   • pattern-sanitizers — calls that neutralise taint before it reaches a sink
+#
+# Semgrep tracks the flow from any source → through assignments and helper
+# functions → to a sink, all within a single file. The matched finding's
+# `extra.dataflow_trace` carries the source location, intermediate variables,
+# and sink location — VibeSec surfaces that as a Data flow card in the panel.
+#
+# Activate via `presets: [vibesec:taint]` in .vibesec.yaml.
+
+rules:
+
+  # ───────────────────────────────────────────────────────────────────────
+  # COMMAND INJECTION — A03:2021 Injection
+  # ───────────────────────────────────────────────────────────────────────
+
+  - id: vibesec.taint-command-injection-python
+    message: >
+      Untrusted input flows into a shell-executing call. Treat all
+      web/CLI/env input as hostile — pass arguments as a list to
+      subprocess.run() with shell=False, or shlex.quote() before
+      composing a command line.
+    severity: ERROR
+    languages: [python]
+    mode: taint
+    pattern-sources:
+      - pattern: request.args.get(...)
+      - pattern: request.args[...]
+      - pattern: request.form.get(...)
+      - pattern: request.form[...]
+      - pattern: request.values.get(...)
+      - pattern: request.values[...]
+      - pattern: request.json
+      - pattern: request.data
+      - pattern: request.cookies.get(...)
+      - pattern: request.cookies[...]
+      - pattern: request.headers.get(...)
+      - pattern: request.headers[...]
+      - pattern: input(...)
+      - pattern: sys.argv[...]
+      - pattern: os.environ.get(...)
+      - pattern: os.environ[...]
+    pattern-sinks:
+      - pattern: subprocess.$FUNC(..., shell=True, ...)
+      - pattern: os.system(...)
+      - pattern: os.popen(...)
+    pattern-sanitizers:
+      - pattern: shlex.quote(...)
+    metadata:
+      category: security
+      cwe: "CWE-78"
+      owasp: "A03:2021 Injection"
+      confidence: HIGH
+      technology: [python]
+
+  - id: vibesec.taint-command-injection-node
+    message: >
+      Untrusted input flows into a shell-executing call. Use
+      child_process.execFile() or child_process.spawn() with an argument
+      array instead of exec/execSync, and never concatenate user input
+      into a shell command.
+    severity: ERROR
+    languages: [javascript, typescript]
+    mode: taint
+    pattern-sources:
+      - pattern: $REQ.body
+      - pattern: $REQ.body.$FIELD
+      - pattern: $REQ.query
+      - pattern: $REQ.query.$FIELD
+      - pattern: $REQ.params
+      - pattern: $REQ.params.$FIELD
+      - pattern: $REQ.headers
+      - pattern: $REQ.headers.$FIELD
+      - pattern: $REQ.cookies
+      - pattern: $REQ.cookies.$FIELD
+      - pattern: process.argv[...]
+      - pattern: process.env.$VAR
+    pattern-sinks:
+      - pattern: child_process.exec(...)
+      - pattern: child_process.execSync(...)
+      - pattern: require("child_process").exec(...)
+      - pattern: require("child_process").execSync(...)
+    metadata:
+      category: security
+      cwe: "CWE-78"
+      owasp: "A03:2021 Injection"
+      confidence: HIGH
+      technology: [node, javascript, typescript]
+
+  # ───────────────────────────────────────────────────────────────────────
+  # SQL INJECTION — A03:2021 Injection
+  # ───────────────────────────────────────────────────────────────────────
+
+  - id: vibesec.taint-sql-injection-node
+    message: >
+      Untrusted input flows into a SQL query. Use parameterised queries
+      (placeholders + values array) instead of string concatenation or
+      template literals.
+    severity: ERROR
+    languages: [javascript, typescript]
+    mode: taint
+    pattern-sources:
+      - pattern: $REQ.body
+      - pattern: $REQ.body.$FIELD
+      - pattern: $REQ.query
+      - pattern: $REQ.query.$FIELD
+      - pattern: $REQ.params
+      - pattern: $REQ.params.$FIELD
+    pattern-sinks:
+      - pattern: $DB.query(...)
+      - pattern: $DB.execute(...)
+      - pattern: $DB.run(...)
+      - pattern: $DB.all(...)
+      - pattern: $DB.get(...)
+    metadata:
+      category: security
+      cwe: "CWE-89"
+      owasp: "A03:2021 Injection"
+      confidence: MEDIUM
+      technology: [node, javascript, typescript]
+
+  # ───────────────────────────────────────────────────────────────────────
+  # PATH TRAVERSAL — A04:2021 Insecure Design
+  # ───────────────────────────────────────────────────────────────────────
+
+  - id: vibesec.taint-path-traversal-python
+    message: >
+      Untrusted input flows into a file-system call. Validate the path
+      against an allowlist of safe locations, or resolve it under a
+      trusted base directory and verify it doesn't escape with
+      `os.path.commonpath`.
+    severity: WARNING
+    languages: [python]
+    mode: taint
+    pattern-sources:
+      - pattern: request.args.get(...)
+      - pattern: request.args[...]
+      - pattern: request.form.get(...)
+      - pattern: request.form[...]
+      - pattern: request.json
+      - pattern: request.values.get(...)
+      - pattern: request.values[...]
+      - pattern: sys.argv[...]
+      - pattern: input(...)
+    pattern-sinks:
+      - pattern: open(...)
+      - pattern: os.path.join(...)
+    metadata:
+      category: security
+      cwe: "CWE-22"
+      owasp: "A04:2021 Insecure Design"
+      confidence: MEDIUM
+      technology: [python]
+
+  - id: vibesec.taint-path-traversal-node
+    message: >
+      Untrusted input flows into a file read. Resolve under a trusted
+      base directory and verify the resolved path stays inside it, or
+      use an allowlist of permitted files.
+    severity: WARNING
+    languages: [javascript, typescript]
+    mode: taint
+    pattern-sources:
+      - pattern: $REQ.body
+      - pattern: $REQ.body.$FIELD
+      - pattern: $REQ.query
+      - pattern: $REQ.query.$FIELD
+      - pattern: $REQ.params
+      - pattern: $REQ.params.$FIELD
+    pattern-sinks:
+      - pattern: fs.readFile(...)
+      - pattern: fs.readFileSync(...)
+      - pattern: fs.createReadStream(...)
+    metadata:
+      category: security
+      cwe: "CWE-22"
+      owasp: "A04:2021 Insecure Design"
+      confidence: MEDIUM
+      technology: [node, javascript, typescript]
+
+  # ───────────────────────────────────────────────────────────────────────
+  # UNSAFE DESERIALIZATION — A08:2021 Software and Data Integrity Failures
+  # ───────────────────────────────────────────────────────────────────────
+
+  - id: vibesec.taint-unsafe-deserialization-python
+    message: >
+      Untrusted input flows into a deserializer that can execute code.
+      Never unpickle data from untrusted sources, and pass an explicit
+      SafeLoader to yaml.load(). Use JSON for cross-trust-boundary data.
+    severity: ERROR
+    languages: [python]
+    mode: taint
+    pattern-sources:
+      - pattern: request.data
+      - pattern: request.json
+      - pattern: request.form.get(...)
+      - pattern: request.form[...]
+      - pattern: request.values.get(...)
+      - pattern: request.values[...]
+      - pattern: request.args.get(...)
+      - pattern: request.args[...]
+      - pattern: sys.stdin.read()
+    pattern-sinks:
+      - pattern: pickle.loads(...)
+      - pattern: pickle.load(...)
+      - pattern: yaml.load(...)
+    metadata:
+      category: security
+      cwe: "CWE-502"
+      owasp: "A08:2021 Software and Data Integrity Failures"
+      confidence: HIGH
+      technology: [python]
+
+  # ───────────────────────────────────────────────────────────────────────
+  # XSS — A03:2021 Injection
+  # ───────────────────────────────────────────────────────────────────────
+
+  - id: vibesec.taint-xss-node
+    message: >
+      Untrusted input flows into an HTML sink without escaping. Use a
+      templating engine that auto-escapes (Handlebars, Pug), assign to
+      textContent for plain text, or sanitise with DOMPurify.
+    severity: WARNING
+    languages: [javascript, typescript]
+    mode: taint
+    pattern-sources:
+      - pattern: $REQ.body
+      - pattern: $REQ.body.$FIELD
+      - pattern: $REQ.query
+      - pattern: $REQ.query.$FIELD
+      - pattern: $REQ.params
+      - pattern: $REQ.params.$FIELD
+    pattern-sinks:
+      - pattern: $RES.send(...)
+      - pattern: $RES.write(...)
+      - pattern: $RES.end(...)
+      - pattern: $EL.innerHTML = $X
+      - pattern: $EL.outerHTML = $X
+      - pattern: document.write(...)
+    metadata:
+      category: security
+      cwe: "CWE-79"
+      owasp: "A03:2021 Injection"
+      confidence: MEDIUM
+      technology: [node, javascript, typescript]
+
+  # ───────────────────────────────────────────────────────────────────────
+  # SSRF — A10:2021 Server-Side Request Forgery
+  # ───────────────────────────────────────────────────────────────────────
+
+  - id: vibesec.taint-ssrf-python
+    message: >
+      Untrusted input flows into an outbound HTTP call, enabling SSRF.
+      Restrict the URL to an allowlist of safe hosts, or resolve the
+      host and reject internal/private IP ranges (RFC 1918, loopback,
+      link-local, metadata service).
+    severity: WARNING
+    languages: [python]
+    mode: taint
+    pattern-sources:
+      - pattern: request.args.get(...)
+      - pattern: request.args[...]
+      - pattern: request.form.get(...)
+      - pattern: request.form[...]
+      - pattern: request.json
+      - pattern: request.values.get(...)
+      - pattern: request.values[...]
+    pattern-sinks:
+      - pattern: requests.get(...)
+      - pattern: requests.post(...)
+      - pattern: requests.request(...)
+      - pattern: urllib.request.urlopen(...)
+      - pattern: urllib.urlopen(...)
+      - pattern: httpx.get(...)
+      - pattern: httpx.post(...)
+    metadata:
+      category: security
+      cwe: "CWE-918"
+      owasp: "A10:2021 Server-Side Request Forgery"
+      confidence: MEDIUM
+      technology: [python]

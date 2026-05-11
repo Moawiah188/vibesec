@@ -47,10 +47,12 @@ const POLICY_TEMPLATE = `# .vibesec.yaml — VibeSec policy file
 
 # Rule presets — these run 100% locally, no internet required
 # "vibesec:default" is the bundled OWASP-style ruleset shipped with VibeSec
+# "vibesec:taint"   is the bundled taint-analysis ruleset (source → sink tracking)
 # You can also use Semgrep registry packs (e.g. p/owasp-top-ten) but those
 # require internet access and may need "semgrep login" first.
 presets:
   - vibesec:default
+  # - vibesec:taint        # uncomment to enable taint analysis
 
 # Severity filter
 severity:

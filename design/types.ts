@@ -13,6 +13,19 @@ export interface PanelMeta {
   confidence: string;
 }
 
+export interface PanelTaintStep {
+  path:    string;
+  absPath: string;
+  line:    number;
+  snippet: string;
+}
+
+export interface PanelTaint {
+  source:        PanelTaintStep;
+  sink:          PanelTaintStep;
+  intermediates: PanelTaintStep[];
+}
+
 export interface PanelFinding {
   id:        string;
   ruleId:    string;
@@ -24,6 +37,7 @@ export interface PanelFinding {
   absPath:   string;
   line:      number;
   meta:      PanelMeta;
+  taint?:    PanelTaint;
 }
 
 export interface PanelTreeNode {
@@ -59,6 +73,7 @@ export type WebviewToExtension =
   | { type: "scanRequested"; filePaths: string[] }
   | { type: "scanCancel" }
   | { type: "goToFinding"; findingId: string }
+  | { type: "goToLocation"; absPath: string; line: number }
   | { type: "copyPromptForVuln"; findingId: string }
   | { type: "copyPromptForFile"; filePath: string }
   | { type: "copyPromptForAll" }

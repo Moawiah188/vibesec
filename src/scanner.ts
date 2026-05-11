@@ -3,7 +3,14 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { logBus } from "./logBus";
-import { Finding, PolicyConfig, SEVERITY_RANK, SeverityLevel } from "./types";
+import {
+  Finding,
+  PolicyConfig,
+  SEVERITY_RANK,
+  SeverityLevel,
+  TaintFlow,
+  TaintLocation,
+} from "./types";
 
 // ── Severity helpers ──────────────────────────────────────────────────────────
 
@@ -66,21 +73,102 @@ function parseSemgrepOutput(json: string): Finding[] {
   const results = data.results ?? [];
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return results.map((r: any): Finding => ({
-    ruleId:    cleanRuleId(r.check_id ?? "unknown"),
-    message:   r.extra?.message ?? "Security issue detected",
-    severity:  mapSeverity(r.extra?.severity ?? "WARNING"),
-    filePath:  r.path,
-    startLine: (r.start?.line ?? 1) - 1,   // Semgrep is 1-based, VS Code is 0-based
-    startCol:  (r.start?.col  ?? 1) - 1,
-    endLine:   (r.end?.line   ?? 1) - 1,
-    endCol:    (r.end?.col    ?? 1) - 1,
-    snippet:   r.extra?.lines ?? "",
-    // Semgrep echoes the matched rule's metadata back here. Preserved verbatim
-    // so the findings panel can render whatever fields are present (cwe, owasp,
-    // references, likelihood, impact, technology, …) without us pre-filtering.
-    metadata:  r.extra?.metadata,
-  }));
+  return results.map((r: any): Finding => {
+    const finding: Finding = {
+      ruleId:    cleanRuleId(r.check_id ?? "unknown"),
+      message:   r.extra?.message ?? "Security issue detected",
+      severity:  mapSeverity(r.extra?.severity ?? "WARNING"),
+      filePath:  r.path,
+      startLine: (r.start?.line ?? 1) - 1,   // Semgrep is 1-based, VS Code is 0-based
+      startCol:  (r.start?.col  ?? 1) - 1,
+      endLine:   (r.end?.line   ?? 1) - 1,
+      endCol:    (r.end?.col    ?? 1) - 1,
+      snippet:   r.extra?.lines ?? "",
+      // Semgrep echoes the matched rule's metadata back here. Preserved verbatim
+      // so the findings panel can render whatever fields are present (cwe, owasp,
+      // references, likelihood, impact, technology, …) without us pre-filtering.
+      metadata:  r.extra?.metadata,
+    };
+    const taint = parseDataflowTrace(r.extra?.dataflow_trace, r.path, finding);
+    if (taint) {
+      finding.taint = taint;
+    }
+    return finding;
+  });
+}
+
+// ── Taint dataflow extraction (Sprint 7) ─────────────────────────────────────
+//
+// Semgrep emits `extra.dataflow_trace` whenever a `mode: taint` rule fires.
+// The shape varies slightly across Semgrep versions:
+//
+//   {
+//     "taint_source":      <CallTrace>,
+//     "intermediate_vars": [<IntermediateVar>, ...],
+//     "taint_sink":        <CallTrace>
+//   }
+//
+// A CallTrace is either an object with `{ location, content }`, or a tagged
+// tuple like `["CliLoc", {location, content}]` / `["CliCall", {location, content}, [...]]`.
+// We extract leaf locations defensively — unknown shapes degrade to the
+// finding's own location rather than throwing.
+
+function extractTaintLocation(node: unknown, fallback: TaintLocation): TaintLocation {
+  // Tagged tuple: ["CliLoc"|"CliCall", { location, content }, ...]
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const loc = tryReadLocation(item);
+      if (loc) { return loc; }
+    }
+    return fallback;
+  }
+  const loc = tryReadLocation(node);
+  return loc ?? fallback;
+}
+
+function tryReadLocation(node: unknown): TaintLocation | null {
+  if (!node || typeof node !== "object" || Array.isArray(node)) { return null; }
+  const obj = node as Record<string, unknown>;
+  const rawLoc = obj.location;
+  if (!rawLoc || typeof rawLoc !== "object" || Array.isArray(rawLoc)) { return null; }
+  const locObj = rawLoc as Record<string, unknown>;
+  const filePath = typeof locObj.path === "string" ? locObj.path : "";
+  const start = locObj.start as { line?: number } | undefined;
+  const line = typeof start?.line === "number" ? start.line - 1 : 0;
+  const snippet = typeof obj.content === "string" ? obj.content.trim() : "";
+  if (!filePath) { return null; }
+  return { filePath, line, snippet };
+}
+
+function parseDataflowTrace(
+  trace: unknown,
+  findingFilePath: string,
+  finding: Finding,
+): TaintFlow | undefined {
+  if (!trace || typeof trace !== "object" || Array.isArray(trace)) { return undefined; }
+  const t = trace as Record<string, unknown>;
+  // If neither taint_source nor taint_sink is present, the rule wasn't taint mode.
+  if (t.taint_source === undefined && t.taint_sink === undefined) { return undefined; }
+
+  // The finding's own range serves as a safe fallback for either endpoint.
+  const fallback: TaintLocation = {
+    filePath: findingFilePath,
+    line:     finding.startLine,
+    snippet:  finding.snippet.split(/\r?\n/)[0]?.trim() ?? "",
+  };
+
+  const source = extractTaintLocation(t.taint_source, fallback);
+  const sink   = extractTaintLocation(t.taint_sink,   fallback);
+
+  const intermediates: TaintLocation[] = [];
+  if (Array.isArray(t.intermediate_vars)) {
+    for (const iv of t.intermediate_vars) {
+      const loc = tryReadLocation(iv);
+      if (loc) { intermediates.push(loc); }
+    }
+  }
+
+  return { source, sink, intermediates };
 }
 
 // ── Temp file for custom rules ────────────────────────────────────────────────
@@ -249,6 +337,20 @@ export function scanFile(
           ...f,
           severity: effectiveSeverity(f, policy),
         }));
+
+        // Emit one log entry per taint finding so the Logs page surfaces the
+        // source/sink hop without adding new UI elsewhere.
+        for (const f of normalised) {
+          if (f.taint) {
+            logBus.info(
+              "scan",
+              `Taint: ${f.ruleId} — source L${f.taint.source.line + 1} → sink L${f.taint.sink.line + 1}`,
+              `file=${path.basename(f.filePath)}\n` +
+                `source: ${f.taint.source.snippet || "(no snippet)"}\n` +
+                `sink:   ${f.taint.sink.snippet   || "(no snippet)"}`,
+            );
+          }
+        }
 
         resolve(normalised);
       }

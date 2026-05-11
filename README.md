@@ -49,6 +49,9 @@ No accounts. No cloud. No telemetry. Everything runs on your machine.
 | Persistent scan history + sparkline | ✅ v0.6.4 |
 | Structured logs with disk persistence + Output channel | ✅ v0.6.4 |
 | Rule index browser with Open YAML | ✅ v0.6.4 |
+| Taint analysis (source → sink data flow tracking) | ✅ v0.7.0 |
+| Data flow visualisation in finding cards (click-to-jump) | ✅ v0.7.0 |
+| TAINT chip on the Rules page | ✅ v0.7.0 |
 
 ---
 
@@ -238,7 +241,31 @@ Languages covered: **Python, JavaScript, TypeScript**
 - **v0.4.0** — Sprint 4 "Prompts": multi-file scan, AI fix prompts, API key management ✅
 - **v0.5.0** — Sprint 5 "Panel": React analysis sidebar, Full Fix tab, severity callouts ✅
 - **v0.6.4** — Sprint 6 "Control Center": editor-area Dashboard / Settings / Logs / Rules, persistent scan history, structured logging ✅
-- **Next** — Live per-rule toggles, external rule registries, in-extension fix workflow
+- **v0.7.0** — Sprint 7 "Taint": bundled taint ruleset, dataflow extraction, data flow UI block, taint-aware AI prompts ✅
+- **Next** — Sprint 8 "Rule Sources": external rule pack syncing, live per-rule toggles
+
+---
+
+## Taint Analysis
+
+VibeSec ships a bundled **taint ruleset** that tracks how untrusted data flows from a *source* (HTTP request body, command-line argument, environment variable, file read) through variable assignments and helper calls to a *sink* (shell exec, SQL query, deserializer, outbound HTTP). This catches bugs that line-by-line pattern matching misses — e.g. when user input is read on line 12, stored in a variable, and only reaches `subprocess.run` on line 47.
+
+**Enable it** by adding `vibesec:taint` to your `.vibesec.yaml`:
+
+```yaml
+presets:
+  - vibesec:default
+  - vibesec:taint
+```
+
+Bundled rules cover **command injection**, **SQL injection**, **path traversal**, **unsafe deserialization** (pickle / yaml), **XSS**, and **SSRF** for Python and JavaScript/TypeScript.
+
+When a taint rule fires, the finding card shows a dedicated **Data flow** block:
+- ① **SOURCE** — where the untrusted data enters
+- ② **STEP N** — any intermediate variable assignments along the path
+- ③ **SINK** — the dangerous call
+
+Click any row to jump straight to that line. The AI fix prompt automatically includes the full data-flow path, so the assistant knows exactly where to add validation or sanitisation.
 
 ---
 

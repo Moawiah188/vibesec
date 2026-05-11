@@ -21,6 +21,11 @@ import type { SeverityLevel } from "./types";
 
 export type RuleSource = "bundled" | "custom" | "external";
 
+/** Analysis mode for a rule. "search" = standard pattern-based; "taint" = data
+ *  flow tracking via Semgrep's mode: taint. Drives the TAINT chip on the Rules
+ *  page so users can see at a glance which rules participate in dataflow. */
+export type RuleMode = "search" | "taint";
+
 export interface RuleEntry {
   /** Stable id as scoped per-file: "<fileId>::<ruleId>" so duplicate ruleIds
    *  across files don't collide in the webview's React list. */
@@ -39,6 +44,7 @@ export interface RuleEntry {
   /** 0–1. Mirrors Semgrep's confidence ladder (HIGH=0.95, MEDIUM=0.7, LOW=0.4). */
   conf:     number;
   source:   RuleSource;
+  mode:     RuleMode;
   /** v1 reads policy `disabledRules` if it ever appears; today the schema
    *  doesn't write it, so this is always `true` for bundled rules. */
   enabled:  boolean;
@@ -121,6 +127,7 @@ interface RawRule {
   severity?:  unknown;
   languages?: unknown;
   metadata?:  unknown;
+  mode?:      unknown;
 }
 
 interface RawRuleDoc {
@@ -174,6 +181,7 @@ function parseRulesFile(absPath: string, fileId: string, source: RuleSource): Pa
       ? r.languages.filter((l): l is string => typeof l === "string")
       : [];
 
+    const mode: RuleMode = r.mode === "taint" ? "taint" : "search";
     rules.push({
       id:      `${fileId}::${r.id}`,
       ruleId:  r.id,
@@ -186,6 +194,7 @@ function parseRulesFile(absPath: string, fileId: string, source: RuleSource): Pa
       owasp:   metadataString(meta, "owasp"),
       conf:    confidenceToScore(meta?.confidence),
       source,
+      mode,
       enabled: true,
     });
     tally[sev]++;
@@ -293,6 +302,8 @@ function describeBundled(filename: string): string {
   switch (filename) {
     case "default.yaml":
       return "OWASP Top 10 baseline — injection, crypto, secrets, XSS, auth, integrity.";
+    case "taint.yaml":
+      return "Taint analysis — tracks user input from source to dangerous sink within a file.";
     default:
       return "Bundled Semgrep rules.";
   }

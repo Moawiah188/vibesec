@@ -179,6 +179,28 @@ export class PanelController
         if (f) { await this.hooks.goToFinding(f); }
         break;
       }
+      case "goToLocation": {
+        // Used by the Data flow block in VulnCard to jump to a taint source,
+        // intermediate variable, or sink. `line` is 1-based from the panel.
+        try {
+          const uri = vscode.Uri.file(msg.absPath);
+          const doc = await vscode.workspace.openTextDocument(uri);
+          const targetLine = Math.max(0, msg.line - 1);
+          const pos = new vscode.Position(targetLine, 0);
+          await vscode.window.showTextDocument(doc, {
+            selection:     new vscode.Range(pos, pos),
+            preserveFocus: false,
+          });
+        } catch (err: unknown) {
+          const detail = err instanceof Error ? err.message : String(err);
+          this.postMessage({
+            type: "toast",
+            tone: "error",
+            message: `VibeSec: Could not open ${msg.absPath}: ${detail}`,
+          });
+        }
+        break;
+      }
       case "copyPromptForVuln": {
         const f = this.findFindingById(msg.findingId);
         if (f) {
@@ -336,10 +358,10 @@ export class PanelController
   private buildHtml(webview: vscode.Webview): string {
     const nonce = makeNonce();
     const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.context.extensionUri, "media", "webview", "main.js"),
+      vscode.Uri.joinPath(this.context.extensionUri, "media", "design", "main.js"),
     );
     const stylesUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.context.extensionUri, "media", "webview", "styles.css"),
+      vscode.Uri.joinPath(this.context.extensionUri, "media", "design", "styles.css"),
     );
     const logoUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, "media", "vibesec-icon.svg"),

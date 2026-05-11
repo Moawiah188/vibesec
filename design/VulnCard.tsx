@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Check, ChevronDown, ChevronRight, Copy, Eye, File as FileIcon, Wand } from "./icons";
-import type { PanelFinding } from "./types";
+import type { PanelFinding, PanelTaintStep } from "./types";
 
 interface Props {
   v:         PanelFinding;
@@ -10,6 +10,8 @@ interface Props {
   copied:    boolean;
   onGoToFix: (id: string) => void;
   onOpenSource: (f: PanelFinding) => void;
+  /** Jump to an arbitrary file:line — used by taint flow rows. */
+  onJumpToLocation: (absPath: string, line: number) => void;
 }
 
 export const VulnCard: React.FC<Props> = ({
@@ -20,6 +22,7 @@ export const VulnCard: React.FC<Props> = ({
   copied,
   onGoToFix,
   onOpenSource,
+  onJumpToLocation,
 }) => {
   return (
     <div className={`vs-vuln sev-${v.severity} ${expanded ? "is-expanded" : ""}`}>
@@ -63,6 +66,7 @@ export const VulnCard: React.FC<Props> = ({
         </div>
       </div>
 
+      {/* TaintFlow appears below */}
       {expanded && (
         <div className="vs-fix">
           <div className="vs-fix-head">
@@ -109,6 +113,9 @@ export const VulnCard: React.FC<Props> = ({
               </div>
             ))}
           </div>
+          {v.taint && (
+            <TaintFlow taint={v.taint} onJump={onJumpToLocation} />
+          )}
           <div
             style={{
               padding: "9px 10px",
@@ -142,5 +149,143 @@ export const VulnCard: React.FC<Props> = ({
         </div>
       )}
     </div>
+  );
+};
+
+// ── Data flow block (Sprint 7 — taint findings) ──────────────────────────────
+//
+// Rendered inside an expanded VulnCard when the underlying finding came from a
+// `mode: taint` rule. Each step is click-to-jump using the goToLocation wire
+// message. Severity-aligned border on the left echoes the parent card's
+// callout treatment so the visual language stays consistent.
+
+interface TaintFlowProps {
+  taint: NonNullable<PanelFinding["taint"]>;
+  onJump: (absPath: string, line: number) => void;
+}
+
+const TaintFlow: React.FC<TaintFlowProps> = ({ taint, onJump }) => {
+  return (
+    <div
+      style={{
+        padding: "10px 12px",
+        borderBottom: "1px solid var(--border-soft)",
+        background: "var(--bg-deep)",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 10,
+          fontWeight: 600,
+          textTransform: "uppercase",
+          letterSpacing: "0.07em",
+          color: "var(--text-faint)",
+          marginBottom: 6,
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+        }}
+      >
+        <span>Data flow</span>
+        <span
+          style={{
+            fontFamily: "var(--vs-mono)",
+            fontSize: 9.5,
+            color: "var(--accent)",
+            background: "var(--accent-soft)",
+            border: "1px solid var(--accent-border)",
+            borderRadius: 3,
+            padding: "1px 5px",
+            letterSpacing: "0.04em",
+          }}
+        >
+          TAINT
+        </span>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <TaintStepRow label="Source" step={taint.source} onJump={onJump} />
+        {taint.intermediates.map((iv, i) => (
+          <TaintStepRow
+            key={`${iv.absPath}:${iv.line}:${i}`}
+            label={`Step ${i + 1}`}
+            step={iv}
+            onJump={onJump}
+            faint
+          />
+        ))}
+        <TaintStepRow label="Sink" step={taint.sink} onJump={onJump} emphasize />
+      </div>
+    </div>
+  );
+};
+
+interface TaintStepRowProps {
+  label: string;
+  step: PanelTaintStep;
+  onJump: (absPath: string, line: number) => void;
+  emphasize?: boolean;
+  faint?: boolean;
+}
+
+const TaintStepRow: React.FC<TaintStepRowProps> = ({ label, step, onJump, emphasize, faint }) => {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onJump(step.absPath, step.line);
+      }}
+      title={`Open ${step.path}:${step.line}`}
+      style={{
+        all: "unset",
+        display: "grid",
+        gridTemplateColumns: "60px 1fr auto",
+        gap: 8,
+        alignItems: "center",
+        padding: "5px 7px",
+        border: "1px solid var(--border-soft)",
+        borderLeft: emphasize
+          ? "2px solid var(--sev-critical)"
+          : "2px solid var(--border)",
+        borderRadius: 4,
+        background: "var(--surface)",
+        cursor: "pointer",
+        opacity: faint ? 0.85 : 1,
+      }}
+    >
+      <span
+        style={{
+          fontFamily: "var(--vs-mono)",
+          fontSize: 10,
+          color: emphasize ? "var(--sev-critical)" : "var(--text-muted)",
+          textTransform: "uppercase",
+          letterSpacing: "0.06em",
+          fontWeight: 600,
+        }}
+      >
+        {label}
+      </span>
+      <span
+        style={{
+          fontFamily: "var(--vs-mono)",
+          fontSize: 11,
+          color: "var(--text)",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {step.snippet || step.path}
+      </span>
+      <span
+        style={{
+          fontFamily: "var(--vs-mono)",
+          fontSize: 10,
+          color: "var(--text-faint)",
+        }}
+      >
+        {step.path}:{step.line}
+      </span>
+    </button>
   );
 };

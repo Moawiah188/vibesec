@@ -2,7 +2,7 @@
   "name": "vibesec",
   "displayName": "VibeSec",
   "description": "AI-assisted security scanner for vibe coders",
-  "version": "0.6.4",
+  "version": "0.7.0",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -296,10 +296,10 @@
     ]
   },
   "scripts": {
-    "compile": "tsc -p ./ && node esbuild.webview.mjs",
+    "compile": "tsc -p ./ && node esbuild.design.mjs",
     "watch": "tsc -watch -p ./",
-    "watch:webview": "node esbuild.webview.mjs --watch",
-    "build:webview": "node esbuild.webview.mjs"
+    "watch:webview": "node esbuild.design.mjs --watch",
+    "build:webview": "node esbuild.design.mjs"
   },
   "dependencies": {
     "js-yaml": "^4.1.0",
