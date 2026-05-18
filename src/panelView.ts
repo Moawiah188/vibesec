@@ -41,6 +41,9 @@ export class PanelController
   private readonly subs: vscode.Disposable[] = [];
   private latestState: PanelState = { kind: "empty" };
   private latestProgress: { percent: number; currentFile: string } | null = null;
+  private readonly extraFiles = new Set<string>();
+  private readonly extraFolders = new Set<string>();
+  private panelWorkspaceFolder: string | undefined;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -165,6 +168,18 @@ export class PanelController
         this.postMessage({ type: "workspaceTree", tree, defaultSelected });
         break;
       }
+      case "openFolder": {
+        await this.pickAndOpenFolder();
+        break;
+      }
+      case "newFile": {
+        await this.createNewWorkspaceFile();
+        break;
+      }
+      case "openControlCenter": {
+        await vscode.commands.executeCommand("vibesec.openControlCenter");
+        break;
+      }
       case "scanRequested": {
         const uris = msg.filePaths.map((p) => vscode.Uri.file(p));
         await this.hooks.runScanOnTargets(uris);
@@ -229,6 +244,66 @@ export class PanelController
     }
   }
 
+
+  private async createNewWorkspaceFile(): Promise<void> {
+    const root = this.workspaceRoot();
+    if (!root) {
+      await vscode.commands.executeCommand("workbench.action.files.newUntitledFile");
+      return;
+    }
+    const rel = await vscode.window.showInputBox({
+      title: "VibeSec — New file",
+      prompt: "Enter a workspace-relative file path, for example src/example.js",
+      placeHolder: "src/example.js",
+      ignoreFocusOut: true,
+      validateInput: (value) => {
+        const trimmed = value.trim();
+        if (!trimmed) { return "File path is required."; }
+        if (path.isAbsolute(trimmed)) { return "Use a workspace-relative path."; }
+        if (trimmed.split(/[\\/]+/).includes("..")) { return "Path cannot contain '..'."; }
+        return null;
+      },
+    });
+    if (!rel) { return; }
+    const abs = path.join(root, rel.trim());
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    if (!fs.existsSync(abs)) { fs.writeFileSync(abs, "", "utf-8"); }
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(abs));
+    await vscode.window.showTextDocument(doc);
+    const { tree, defaultSelected } = await this.buildWorkspaceTree();
+    this.postMessage({ type: "workspaceTree", tree, defaultSelected });
+  }
+
+  private async pickAndOpenFolder(): Promise<void> {
+    const picks = await vscode.window.showOpenDialog({
+      title: "VibeSec — Open folder inside Analysis panel",
+      canSelectFiles: false,
+      canSelectFolders: true,
+      canSelectMany: false,
+      openLabel: "Open in VibeSec",
+    });
+    const picked = picks?.[0];
+    if (!picked) { return; }
+
+    try {
+      // Treat the selected folder as the active VibeSec workspace inside the tool.
+      // This does not open a new VS Code window and does not add a normal VS Code workspace folder.
+      this.panelWorkspaceFolder = picked.fsPath;
+      this.extraFolders.clear();
+      this.extraFiles.clear();
+      const { tree, defaultSelected } = await this.buildWorkspaceTree();
+      this.postMessage({ type: "workspaceTree", tree, defaultSelected });
+      this.postMessage({ type: "toast", tone: "info", message: `VibeSec workspace opened: ${path.basename(picked.fsPath)}` });
+    } catch (err: unknown) {
+      const detail = err instanceof Error ? err.message : String(err);
+      this.postMessage({
+        type: "toast",
+        tone: "error",
+        message: `VibeSec: Could not open folder: ${detail}`,
+      });
+    }
+  }
+
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   private postMessage(msg: ExtensionToWebview): void {
@@ -244,7 +319,7 @@ export class PanelController
   }
 
   private workspaceRoot(): string | undefined {
-    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    return this.panelWorkspaceFolder ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   }
 
   private findFindingById(id: string): Finding | undefined {
@@ -274,9 +349,6 @@ export class PanelController
     defaultSelected: string[];
   }> {
     const folders = vscode.workspace.workspaceFolders ?? [];
-    if (folders.length === 0) {
-      return { tree: [], defaultSelected: [] };
-    }
     const exts = getScannableExtensions();
 
     const buildFolder = (
@@ -340,6 +412,17 @@ export class PanelController
     };
 
     const tree: PanelTreeNode[] = [];
+
+    if (this.panelWorkspaceFolder) {
+      const rootNode = buildFolder(
+        this.panelWorkspaceFolder,
+        path.basename(this.panelWorkspaceFolder) || this.panelWorkspaceFolder,
+        0,
+      );
+      if (rootNode?.children) { tree.push(...rootNode.children); }
+      return { tree, defaultSelected: [] };
+    }
+
     if (folders.length === 1) {
       const rootNode = buildFolder(folders[0].uri.fsPath, folders[0].name, 0);
       if (rootNode?.children) { tree.push(...rootNode.children); }
@@ -348,6 +431,30 @@ export class PanelController
         const node = buildFolder(f.uri.fsPath, f.name, 0);
         if (node) { tree.push(node); }
       }
+    }
+
+    for (const folderPath of Array.from(this.extraFolders).sort()) {
+      const alreadyInWorkspace = folders.some((f) => folderPath === f.uri.fsPath || folderPath.startsWith(f.uri.fsPath + path.sep));
+      if (alreadyInWorkspace) { continue; }
+      const node = buildFolder(folderPath, path.basename(folderPath) || folderPath, 0);
+      if (node) { tree.push(node); }
+    }
+
+    for (const filePath of Array.from(this.extraFiles).sort()) {
+      const alreadyInWorkspace = folders.some((f) => filePath.startsWith(f.uri.fsPath + path.sep));
+      if (alreadyInWorkspace) { continue; }
+      if (!isScannablePath(filePath, exts)) { continue; }
+      const name = path.basename(filePath);
+      const ext = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1).toLowerCase() : undefined;
+      tree.push({
+        id: filePath,
+        type: "file",
+        name,
+        ext,
+        depth: 0,
+        open: false,
+        scannable: true,
+      });
     }
 
     return { tree, defaultSelected: [] };

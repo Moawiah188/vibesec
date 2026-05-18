@@ -1,15 +1,11 @@
-# .vibesec.yaml — example policy for the test-samples directory
-# Copy this to your workspace root and rename it .vibesec.yaml
-
+# .vibesec.yaml — edited by VibeSec Control Center
 presets:
   - vibesec:default
-
+  - vibesec:taint
 severity:
   minSeverity: warning
-  # overrides:
-  #   vibesec.hardcoded-secret: error
-
-# files:
-#   exclude:
-#     - "**/*.test.py"
-#     - "**/node_modules/**"
+activePolicyFiles:
+  - rules/default.yaml
+  - rules/taint.yaml
+externalRuleFiles: []
+disabledRules: []

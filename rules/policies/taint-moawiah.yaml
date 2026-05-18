@@ -1,0 +1,48 @@
+# VibeSec taint analysis policy
+# Purpose: source → flow → sink tracking.
+# Activate this file from Control Center → Rules.
+# This file starts empty. Turn ON rules/taint.yaml separately if you want the bundled taint rules.
+
+activePolicyKind: taint
+presets: []
+
+severity:
+  minSeverity: warning
+
+files:
+  exclude:
+    - "**/node_modules/**"
+    - "**/dist/**"
+    - "**/build/**"
+    - "**/*.test.*"
+
+# Rules turned OFF from Control Center can be tracked here.
+disabledRules: []
+
+# Optional custom taint rules.
+# Keep rules empty unless you want to add project-specific source/sink checks.
+rules: []
+
+# Example taint rule structure:
+# rules:
+#   - id: custom.node.sql-injection
+#     mode: taint
+#     message: User input reaches a SQL execution sink.
+#     severity: ERROR
+#     languages: [javascript, typescript]
+#     pattern-sources:
+#       - pattern: $REQ.query.$FIELD
+#       - pattern: $REQ.body.$FIELD
+#       - pattern: $REQ.params.$FIELD
+#     pattern-sinks:
+#       - patterns:
+#           - pattern: $DB.query($QUERY, ...)
+#           - focus-metavariable: $QUERY
+#     pattern-sanitizers:
+#       - pattern: Number(...)
+#       - pattern: parseInt(...)
+#     metadata:
+#       category: security
+#       cwe: "CWE-89"
+#       owasp: "A03:2021 Injection"
+#       confidence: MEDIUM

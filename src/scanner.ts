@@ -239,10 +239,8 @@ function buildConfigArgs(
   if (tmp !== null) {
     args.push("--config", tmp.filePath);
   }
-  // Safety net: if nothing is configured, fall back to bundled default
-  if (policy.presets.length === 0 && policy.rules.length === 0) {
-    args.push("--config", path.join(extensionPath, "rules", "default.yaml"));
-  }
+  // No safety fallback here. If the user turns every policy file OFF, the
+  // policy intentionally has zero configs and scanFile returns zero findings.
   return args;
 }
 
@@ -275,6 +273,16 @@ export function scanFile(
     }
 
     const configArgs = buildConfigArgs(policy, tmp, extensionPath);
+    if (configArgs.length === 0) {
+      cleanupTempRuleFile(tmp);
+      logBus.info(
+        "scan",
+        `No active policy configs for ${path.basename(filePath)} — skipping Semgrep`,
+        "Turn ON one or more policy files in Control Center → Rules to scan again.",
+      );
+      resolve([]);
+      return;
+    }
 
     execFile(
       semgrepPath,
@@ -328,8 +336,10 @@ export function scanFile(
           return;
         }
 
-        // Apply severity overrides and minSeverity filter
-        const filtered = allFindings.filter((f) => meetsMinSeverity(f, policy));
+        // Apply disabledRules, severity overrides and minSeverity filter.
+        const disabled = new Set(policy.disabledRules);
+        const enabledFindings = allFindings.filter((f) => !disabled.has(f.ruleId));
+        const filtered = enabledFindings.filter((f) => meetsMinSeverity(f, policy));
 
         // Mutate severity to the effective value so diagnostics and the tree
         // view both reflect the override — not the raw Semgrep severity

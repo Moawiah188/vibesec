@@ -1,0 +1,260 @@
+[
+  {
+    "name": "Python command execution with shell=True",
+    "id": "VS-CUSTOM-001",
+    "description": "subprocess is running with shell=True, which can lead to command injection.",
+    "recommendation": "Use shell=False and pass arguments as a list.",
+    "applies_to": [
+      "python"
+    ],
+    "severity": "critical",
+    "tags": [
+      "security",
+      "command-injection",
+      "python"
+    ],
+    "patterns": [
+      {
+        "pattern": "subprocess\\.(run|call|Popen)\\s*\\([^\\n]*shell\\s*=\\s*True",
+        "type": "regex"
+      }
+    ]
+  },
+  {
+    "name": "Python os.system command execution",
+    "id": "VS-CUSTOM-002",
+    "description": "os.system executes operating system commands and can be dangerous.",
+    "recommendation": "Avoid os.system and use safe subprocess calls with fixed arguments.",
+    "applies_to": [
+      "python"
+    ],
+    "severity": "important",
+    "tags": [
+      "security",
+      "command-injection",
+      "python"
+    ],
+    "patterns": [
+      {
+        "pattern": "os\\.system\\s*\\(",
+        "type": "regex"
+      }
+    ]
+  },
+  {
+    "name": "Python os.popen command execution",
+    "id": "VS-CUSTOM-003",
+    "description": "os.popen executes shell commands and can be unsafe.",
+    "recommendation": "Avoid os.popen and use safer APIs.",
+    "applies_to": [
+      "python"
+    ],
+    "severity": "important",
+    "tags": [
+      "security",
+      "command-injection",
+      "python"
+    ],
+    "patterns": [
+      {
+        "pattern": "os\\.popen\\s*\\(",
+        "type": "regex"
+      }
+    ]
+  },
+  {
+    "name": "Python eval usage",
+    "id": "VS-CUSTOM-004",
+    "description": "eval executes dynamic code and can lead to code injection.",
+    "recommendation": "Avoid eval. Use safe parsing or fixed logic.",
+    "applies_to": [
+      "python"
+    ],
+    "severity": "critical",
+    "tags": [
+      "security",
+      "code-injection",
+      "python"
+    ],
+    "patterns": [
+      {
+        "pattern": "\\beval\\s*\\(",
+        "type": "regex"
+      }
+    ]
+  },
+  {
+    "name": "Python exec usage",
+    "id": "VS-CUSTOM-005",
+    "description": "exec executes dynamic Python code and can lead to code injection.",
+    "recommendation": "Avoid exec with untrusted or dynamic input.",
+    "applies_to": [
+      "python"
+    ],
+    "severity": "critical",
+    "tags": [
+      "security",
+      "code-injection",
+      "python"
+    ],
+    "patterns": [
+      {
+        "pattern": "\\bexec\\s*\\(",
+        "type": "regex"
+      }
+    ]
+  },
+  {
+    "name": "Weak MD5 hash",
+    "id": "VS-CUSTOM-006",
+    "description": "MD5 is weak and should not be used for security-sensitive hashing.",
+    "recommendation": "Use SHA-256 or stronger algorithms.",
+    "applies_to": [
+      "python",
+      "javascript"
+    ],
+    "severity": "moderate",
+    "tags": [
+      "security",
+      "weak-crypto",
+      "hashing"
+    ],
+    "patterns": [
+      {
+        "pattern": "\\bmd5\\s*\\(",
+        "type": "regex"
+      }
+    ]
+  },
+  {
+    "name": "Weak SHA1 hash",
+    "id": "VS-CUSTOM-007",
+    "description": "SHA1 is weak and should not be used for security-sensitive hashing.",
+    "recommendation": "Use SHA-256 or stronger algorithms.",
+    "applies_to": [
+      "python",
+      "javascript"
+    ],
+    "severity": "moderate",
+    "tags": [
+      "security",
+      "weak-crypto",
+      "hashing"
+    ],
+    "patterns": [
+      {
+        "pattern": "\\bsha1\\s*\\(",
+        "type": "regex"
+      }
+    ]
+  },
+  {
+    "name": "Unsafe YAML load",
+    "id": "VS-CUSTOM-008",
+    "description": "yaml.load can deserialize unsafe content.",
+    "recommendation": "Use yaml.safe_load instead.",
+    "applies_to": [
+      "python"
+    ],
+    "severity": "important",
+    "tags": [
+      "security",
+      "deserialization",
+      "python"
+    ],
+    "patterns": [
+      {
+        "pattern": "yaml\\.load\\s*\\(",
+        "type": "regex"
+      }
+    ]
+  },
+  {
+    "name": "Flask debug mode enabled",
+    "id": "VS-CUSTOM-009",
+    "description": "Debug mode should not be enabled in production.",
+    "recommendation": "Disable debug=True before deployment.",
+    "applies_to": [
+      "python"
+    ],
+    "severity": "important",
+    "tags": [
+      "security",
+      "debug",
+      "python",
+      "flask"
+    ],
+    "patterns": [
+      {
+        "pattern": "app\\.run\\s*\\([^\\n]*debug\\s*=\\s*True",
+        "type": "regex"
+      }
+    ]
+  },
+  {
+    "name": "JavaScript eval usage",
+    "id": "VS-CUSTOM-010",
+    "description": "eval executes dynamic JavaScript code and can lead to code injection.",
+    "recommendation": "Avoid eval and use safe alternatives.",
+    "applies_to": [
+      "javascript",
+      "typescript"
+    ],
+    "severity": "critical",
+    "tags": [
+      "security",
+      "code-injection",
+      "javascript"
+    ],
+    "patterns": [
+      {
+        "pattern": "\\beval\\s*\\(",
+        "type": "regex"
+      }
+    ]
+  },
+  {
+    "name": "JavaScript innerHTML usage",
+    "id": "VS-CUSTOM-011",
+    "description": "innerHTML can cause XSS if user input is inserted into the page.",
+    "recommendation": "Use textContent or safe output encoding.",
+    "applies_to": [
+      "javascript",
+      "typescript"
+    ],
+    "severity": "important",
+    "tags": [
+      "security",
+      "xss",
+      "javascript"
+    ],
+    "patterns": [
+      {
+        "pattern": "\\.innerHTML\\s*=",
+        "type": "regex"
+      }
+    ]
+  },
+  {
+    "name": "JavaScript document.write usage",
+    "id": "VS-CUSTOM-012",
+    "description": "document.write can cause XSS if used with unsafe input.",
+    "recommendation": "Avoid document.write and use safe DOM APIs.",
+    "applies_to": [
+      "javascript",
+      "typescript"
+    ],
+    "severity": "important",
+    "tags": [
+      "security",
+      "xss",
+      "javascript"
+    ],
+    "patterns": [
+      {
+        "pattern": "document\\.write\\s*\\(",
+        "type": "regex"
+      }
+    ]
+  }
+]

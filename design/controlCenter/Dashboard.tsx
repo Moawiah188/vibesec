@@ -2,9 +2,11 @@ import * as React from "react";
 import { useMemo, useState } from "react";
 import type {
   ControlCenterQuickAction,
+  LlmProvider,
   ScanHistoryEntry,
   SettingsState,
 } from "./types";
+import { PROVIDER_DEFAULT_MODEL } from "./llmModels";
 
 // ── Range buckets ────────────────────────────────────────────────────────────
 //
@@ -108,6 +110,21 @@ function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+function displayModel(provider: LlmProvider, configured: string): string {
+  const fallback = PROVIDER_DEFAULT_MODEL[provider] ?? configured;
+  if (provider === "custom") { return configured || fallback; }
+  if (!configured) { return fallback; }
+  const looksOpenAI = /^gpt[-_]/i.test(configured) || /^o\d/i.test(configured);
+  const looksAnthropic = /^claude[-_]/i.test(configured);
+  const looksGemini = /^gemini[-_]/i.test(configured);
+  const looksGroq = /^llama[-_]/i.test(configured) || /^mixtral[-_]/i.test(configured) || /^gemma[-_]/i.test(configured) || /^qwen[-_]/i.test(configured) || /groq/i.test(configured);
+  if (provider === "openai" && (looksAnthropic || looksGemini || looksGroq)) { return fallback; }
+  if (provider === "anthropic" && (looksOpenAI || looksGemini || looksGroq)) { return fallback; }
+  if (provider === "gemini" && (looksOpenAI || looksAnthropic || looksGroq)) { return fallback; }
+  if (provider === "groq" && (looksOpenAI || looksAnthropic || looksGemini || configured === "custom-model")) { return fallback; }
+  return configured;
+}
+
 // ── Sparkline ────────────────────────────────────────────────────────────────
 
 interface SparklineProps {
@@ -169,6 +186,19 @@ const IconFile: React.FC<{ className?: string }> = ({ className }) => (
     <path d="M14 2v6h6" />
   </svg>
 );
+const IconFolder: React.FC<{ className?: string }> = ({ className }) => (
+  <svg {...stroke} className={className}>
+    <path d="M3 6.5V18a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7l-2-2H5a2 2 0 0 0-2 2.5z" />
+  </svg>
+);
+const IconPlusFile: React.FC<{ className?: string }> = ({ className }) => (
+  <svg {...stroke} className={className}>
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <path d="M14 2v6h6" />
+    <path d="M12 12v6" />
+    <path d="M9 15h6" />
+  </svg>
+);
 const IconRefresh: React.FC<{ className?: string }> = ({ className }) => (
   <svg {...stroke} className={className}>
     <path d="M3 12a9 9 0 0 1 15.5-6.4L21 8" />
@@ -179,10 +209,11 @@ const IconRefresh: React.FC<{ className?: string }> = ({ className }) => (
 );
 
 const QUICK_ACTIONS: QuickActionDef[] = [
-  { id: "scan",         title: "Scan project",     sub: "Run full Semgrep sweep",         icon: IconPlay     },
-  { id: "openPanel",    title: "Open side panel",  sub: "Reveal the VibeSec analysis panel", icon: IconExternal },
-  { id: "openPolicy",   title: "Open policy file", sub: ".vibesec.yaml in the workspace",  icon: IconFile     },
-  { id: "reloadPolicy", title: "Reload policy",    sub: "Re-parse rules from disk",        icon: IconRefresh  },
+  { id: "scan",            title: "Scan project",      sub: "Run full Semgrep sweep",              icon: IconPlay    },
+  { id: "openPolicy",      title: "Open policy file",  sub: "Choose any VibeSec policy to open",  icon: IconFile    },
+  { id: "reloadPolicy",    title: "Reload policy",     sub: "Re-parse rules from disk",           icon: IconRefresh },
+  { id: "newNormalPolicy", title: "New normal policy", sub: "Create a named normal scan policy",  icon: IconFile    },
+  { id: "newTaintPolicy",  title: "New taint policy",  sub: "Create a named taint scan policy",   icon: IconFile    },
 ];
 
 // ── Page ─────────────────────────────────────────────────────────────────────
@@ -266,14 +297,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 </button>
               ))}
             </div>
-            <button
-              className="btn sm ghost"
-              onClick={() => onAction("openPanel")}
-              type="button"
-            >
-              <IconExternal />
-              Open panel
-            </button>
+
           </div>
         </div>
 
@@ -373,18 +397,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <dt>Provider</dt>
             <dd className="row" style={{ gap: 6 }}>
               <span className="dot ok" />
-              <span className="mono">{settings.values.llmProvider}</span>
+              <span className="mono">{settings.values.llmProvider === "custom" ? (settings.values.llmCustomProviderName || "custom") : settings.values.llmProvider}</span>
             </dd>
             <dt>Model</dt>
-            <dd className="mono" style={{ fontSize: 12 }}>{settings.values.llmModel}</dd>
+            <dd className="mono" style={{ fontSize: 12 }}>{displayModel(settings.values.llmProvider, settings.values.llmModel)}</dd>
             <dt>Prompt mode</dt>
             <dd className="mono">{settings.values.promptMode}</dd>
             <dt>Semgrep</dt>
             <dd className="mono" style={{ fontSize: 12 }}>{settings.values.semgrepPath}</dd>
             <dt>Policy</dt>
             <dd className="mono">.vibesec.yaml</dd>
-            <dt>Auto-scan</dt>
-            <dd className="mono">{settings.values.autoScanOnSave ? "on save" : "manual"}</dd>
           </dl>
         </section>
 

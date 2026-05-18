@@ -116,6 +116,7 @@ export interface RawPolicy {
   severity?:          unknown;
   rules?:             unknown;
   externalRuleFiles?: unknown;
+  disabledRules?:     unknown;
   files?:             unknown;
 }
 
@@ -124,16 +125,17 @@ export interface RawPolicy {
  * This is what scanner.ts and extension.ts receive.
  */
 export interface PolicyConfig {
-  presets:   string[];
-  severity:  SeveritySettings;
-  rules:     CustomRule[];   // inline + all external files merged + deduplicated
-  files:     FilePatterns;
-  isDefault: boolean;        // true when no .vibesec.yaml was found
+  presets:       string[];
+  severity:      SeveritySettings;
+  rules:         CustomRule[];   // inline + all external files merged + deduplicated
+  disabledRules: string[];       // rule IDs disabled from the Control Center
+  files:         FilePatterns;
+  isDefault:     boolean;        // true when no .vibesec.yaml was found
 }
 
 // ── Prompt generation (Sprint 4) ─────────────────────────────────────────────
 
-export type LlmProvider = "openai" | "anthropic" | "gemini";
+export type LlmProvider = "openai" | "anthropic" | "gemini" | "groq" | "custom";
 
 export type PromptMode = "perFile" | "perVulnerability" | "perProject";
 

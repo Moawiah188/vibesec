@@ -64,6 +64,8 @@ export interface RuleFileEntry {
   ruleCount:    number;
   /** Per-severity rule counts for the design's badge dots. */
   severities:   { error: number; warning: number; info: number };
+  /** Whether this whole file is active in the workspace policy. */
+  enabled:      boolean;
   /** When non-empty, the file existed but YAML parsing failed. */
   parseError?:  string;
 }
@@ -140,7 +142,63 @@ interface ParseResult {
   severities: { error: number; warning: number; info: number };
 }
 
-function parseRulesFile(absPath: string, fileId: string, source: RuleSource): ParseResult {
+const DISABLED_RULE_PREFIX = "# VIBESEC_DISABLED ";
+
+function stripDisabledRulePrefix(line: string): string | null {
+  return line.startsWith(DISABLED_RULE_PREFIX)
+    ? line.slice(DISABLED_RULE_PREFIX.length)
+    : null;
+}
+
+function readDisabledRuleBlocks(content: string): unknown[] {
+  const blocks: string[][] = [];
+  let current: string[] = [];
+
+  const flush = (): void => {
+    if (current.length > 0) {
+      blocks.push(current);
+      current = [];
+    }
+  };
+
+  for (const line of content.split(/\r?\n/)) {
+    const stripped = stripDisabledRulePrefix(line);
+    if (stripped === null) {
+      flush();
+      continue;
+    }
+    if (/^\s*-\s+id\s*:/.test(stripped)) {
+      flush();
+    }
+    current.push(stripped);
+  }
+  flush();
+
+  const out: unknown[] = [];
+  for (const block of blocks) {
+    try {
+      const parsed = yaml.load(`rules:\n${block.join("\n")}`);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const rulesRaw = (parsed as RawRuleDoc).rules;
+        if (Array.isArray(rulesRaw)) {
+          out.push(...rulesRaw);
+        }
+      }
+    } catch {
+      // Ignore broken commented blocks. The normal YAML parser still reports
+      // active-file errors separately, and users can open the YAML to repair.
+    }
+  }
+  return out;
+}
+
+function parseRulesFile(
+  absPath: string,
+  fileId: string,
+  source: RuleSource,
+  disabledRules: Set<string>,
+  fileEnabled: boolean,
+): ParseResult {
   const empty: ParseResult = {
     rules: [],
     severities: { error: 0, warning: 0, info: 0 },
@@ -161,44 +219,59 @@ function parseRulesFile(absPath: string, fileId: string, source: RuleSource): Pa
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { ...empty, parseError: "Top-level YAML must be a mapping" };
   }
-  const rulesRaw = (raw as RawRuleDoc).rules;
-  if (!Array.isArray(rulesRaw)) {
-    // .vibesec.yaml is allowed to omit `rules:` — that's not an error, just zero rules.
-    return empty;
-  }
 
   const rules: RuleEntry[] = [];
   const tally = { error: 0, warning: 0, info: 0 };
-  for (const item of rulesRaw) {
-    if (!item || typeof item !== "object") { continue; }
-    const r = item as RawRule;
-    if (typeof r.id !== "string" || r.id.trim() === "") { continue; }
-    const sev = severityFromYaml(r.severity);
-    const meta = (typeof r.metadata === "object" && r.metadata !== null && !Array.isArray(r.metadata))
-      ? r.metadata as Record<string, unknown>
-      : undefined;
-    const langs = Array.isArray(r.languages)
-      ? r.languages.filter((l): l is string => typeof l === "string")
-      : [];
+  const seen = new Set<string>();
 
-    const mode: RuleMode = r.mode === "taint" ? "taint" : "search";
-    rules.push({
-      id:      `${fileId}::${r.id}`,
-      ruleId:  r.id,
-      file:    fileId,
-      name:    prettifyTitle(r.id),
-      sev,
-      cat:     metadataString(meta, "category"),
-      langs,
-      cwe:     metadataString(meta, "cwe"),
-      owasp:   metadataString(meta, "owasp"),
-      conf:    confidenceToScore(meta?.confidence),
-      source,
-      mode,
-      enabled: true,
-    });
-    tally[sev]++;
+  const appendRules = (rulesRaw: unknown[], forcedEnabled?: boolean): void => {
+    for (const item of rulesRaw) {
+      if (!item || typeof item !== "object") { continue; }
+      const r = item as RawRule;
+      if (typeof r.id !== "string" || r.id.trim() === "") { continue; }
+      const ruleId = r.id.trim();
+      const scopedId = `${fileId}::${ruleId}`;
+      if (seen.has(scopedId)) { continue; }
+      seen.add(scopedId);
+
+      const sev = severityFromYaml(r.severity);
+      const meta = (typeof r.metadata === "object" && r.metadata !== null && !Array.isArray(r.metadata))
+        ? r.metadata as Record<string, unknown>
+        : undefined;
+      const langs = Array.isArray(r.languages)
+        ? r.languages.filter((l): l is string => typeof l === "string")
+        : [];
+
+      const mode: RuleMode = r.mode === "taint" ? "taint" : "search";
+      rules.push({
+        id:      scopedId,
+        ruleId,
+        file:    fileId,
+        name:    prettifyTitle(ruleId),
+        sev,
+        cat:     metadataString(meta, "category"),
+        langs,
+        cwe:     metadataString(meta, "cwe"),
+        owasp:   metadataString(meta, "owasp"),
+        conf:    confidenceToScore(meta?.confidence),
+        source,
+        mode,
+        enabled: forcedEnabled ?? (fileEnabled && !disabledRules.has(ruleId)),
+      });
+      tally[sev]++;
+    }
+  };
+
+  const rulesRaw = (raw as RawRuleDoc).rules;
+  if (Array.isArray(rulesRaw)) {
+    appendRules(rulesRaw);
   }
+
+  // Rules that the UI disables are physically commented with
+  // "# VIBESEC_DISABLED" so Semgrep cannot run them. We still recover their
+  // metadata here so the Rules page can display them as OFF and re-enable them.
+  appendRules(readDisabledRuleBlocks(content), false);
+
   return { rules, severities: tally };
 }
 
@@ -210,6 +283,171 @@ function fileMtimeIso(absPath: string): string | null {
     return null;
   }
 }
+
+
+type PolicySlotKind = "normal" | "taint" | "custom";
+
+interface WorkspacePolicyState {
+  policyExists: boolean;
+  presets: string[];
+  disabledRules: Set<string>;
+  /** v0.8.6: any number of active policy files. */
+  activePolicyFiles: Set<string>;
+  hasInlineRules: boolean;
+}
+
+function asStringArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) { return null; }
+  const out = value.filter((v): v is string => typeof v === "string");
+  return out.length === value.length ? out : null;
+}
+
+function normalizeRelPath(value: unknown): string | null {
+  return typeof value === "string" && value.trim() !== "" ? value.trim().replace(/\\/g, "/") : null;
+}
+
+function policyKindFromRaw(raw: unknown, relPath: string): PolicySlotKind {
+  const lowerRel = relPath.toLowerCase();
+  if (lowerRel === "rules/taint.yaml" || /(^|\/)taint[-_]/.test(lowerRel)) { return "taint"; }
+  if (lowerRel === "rules/default.yaml" || /(^|\/)normal[-_]/.test(lowerRel)) { return "normal"; }
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>;
+    if (obj.activePolicyKind === "taint") { return "taint"; }
+    if (obj.activePolicyKind === "default" || obj.activePolicyKind === "normal") { return "normal"; }
+    const presets = asStringArray(obj.presets) ?? [];
+    if (presets.includes("vibesec:taint") && !presets.includes("vibesec:default")) { return "taint"; }
+    if (presets.includes("vibesec:default")) { return "normal"; }
+    if (Array.isArray(obj.rules)) {
+      const hasTaint = obj.rules.some((rule) => !!(rule && typeof rule === "object" && !Array.isArray(rule) && (rule as Record<string, unknown>).mode === "taint"));
+      if (hasTaint) { return "taint"; }
+    }
+  }
+  return "normal";
+}
+
+function readPolicyFileKind(absPath: string, relPath: string): PolicySlotKind {
+  if (relPath === "rules/default.yaml") { return "normal"; }
+  if (relPath === "rules/taint.yaml") { return "taint"; }
+  try {
+    return policyKindFromRaw(yaml.load(fs.readFileSync(absPath, "utf-8")), relPath);
+  } catch {
+    return policyKindFromRaw(undefined, relPath);
+  }
+}
+
+function readWorkspacePolicyState(workspaceRoot: string | undefined, extensionPath: string): WorkspacePolicyState {
+  const fallback: WorkspacePolicyState = {
+    policyExists: false,
+    presets: ["vibesec:default"],
+    disabledRules: new Set<string>(),
+    activePolicyFiles: new Set<string>(["rules/default.yaml"]),
+    hasInlineRules: false,
+  };
+  if (!workspaceRoot) { return fallback; }
+  const policyPath = path.join(workspaceRoot, ".vibesec.yaml");
+  if (!fs.existsSync(policyPath)) { return fallback; }
+
+  try {
+    const raw = yaml.load(fs.readFileSync(policyPath, "utf-8"));
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return { ...fallback, policyExists: true };
+    }
+    const obj = raw as Record<string, unknown>;
+    const presets = obj.presets === undefined
+      ? ["vibesec:default"]
+      : asStringArray(obj.presets) ?? ["vibesec:default"];
+    const disabled = asStringArray(obj.disabledRules) ?? [];
+    const hasInlineRules = Array.isArray(obj.rules) && obj.rules.length > 0;
+
+    const activePolicyFiles = new Set<string>();
+
+    // v0.8.6: any number of active policy files. Empty array means none.
+    const explicitMany = asStringArray(obj.activePolicyFiles);
+    if (Array.isArray(obj.activePolicyFiles) && explicitMany) {
+      for (const rel of explicitMany) {
+        const normalized = normalizeRelPath(rel);
+        if (normalized) { activePolicyFiles.add(normalized); }
+      }
+    } else {
+      // Backward compatibility: v0.8.5 stored one normal and one taint slot.
+      const activeNormalPolicyFile = normalizeRelPath(obj.activeNormalPolicyFile);
+      const activeTaintPolicyFile = normalizeRelPath(obj.activeTaintPolicyFile);
+      if (activeNormalPolicyFile) { activePolicyFiles.add(activeNormalPolicyFile); }
+      if (activeTaintPolicyFile) { activePolicyFiles.add(activeTaintPolicyFile); }
+
+      // Backward compatibility: old VibeSec versions stored a single activePolicyFile.
+      const legacy = normalizeRelPath(obj.activePolicyFile);
+      if (legacy && activePolicyFiles.size === 0) {
+        activePolicyFiles.add(legacy);
+      }
+
+      if (activePolicyFiles.size === 0 && presets.includes("vibesec:default")) {
+        activePolicyFiles.add("rules/default.yaml");
+      }
+      if (activePolicyFiles.size === 0 && presets.includes("vibesec:taint")) {
+        activePolicyFiles.add("rules/taint.yaml");
+      }
+      if (activePolicyFiles.size > 0 && presets.includes("vibesec:taint")) {
+        activePolicyFiles.add("rules/taint.yaml");
+      }
+    }
+
+    return {
+      policyExists: true,
+      presets,
+      disabledRules: new Set(disabled),
+      activePolicyFiles,
+      hasInlineRules,
+    };
+  } catch {
+    return { ...fallback, policyExists: true };
+  }
+}
+
+function presetForBundled(filename: string): string {
+  const stem = filename.replace(/\.ya?ml$/i, "");
+  return `vibesec:${stem}`;
+}
+
+function externalFileId(relPath: string): string {
+  return `external/${relPath.replace(/\\/g, "/")}`;
+}
+
+function discoverWorkspacePolicyFiles(workspaceRoot: string): string[] {
+  try {
+    return fs.readdirSync(workspaceRoot)
+      .filter((name) => name === ".vibesec.yaml" || /^\.vibesec-.+\.ya?ml$/i.test(name))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+function discoverToolPolicyFiles(extensionPath: string): { rel: string; abs: string }[] {
+  const dir = path.join(extensionPath, "rules", "policies");
+  try {
+    return fs.readdirSync(dir)
+      .filter((name) => /\.ya?ml$/i.test(name))
+      .sort()
+      .map((name) => ({
+        rel: path.posix.join("rules", "policies", name),
+        abs: path.join(dir, name),
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function isSelectorPolicyFile(absPath: string): boolean {
+  try {
+    const raw = yaml.load(fs.readFileSync(absPath, "utf-8"));
+    return !!(raw && typeof raw === "object" && !Array.isArray(raw) && typeof (raw as Record<string, unknown>).activePolicyFile === "string");
+  } catch {
+    return false;
+  }
+}
+
+
 
 // ── Public builder ───────────────────────────────────────────────────────────
 
@@ -225,6 +463,7 @@ export function buildRulesIndex(
 ): RulesIndex {
   const files: RuleFileEntry[] = [];
   const rules: RuleEntry[] = [];
+  const policyState = readWorkspacePolicyState(workspaceRoot, extensionPath);
 
   // ── Bundled ────────────────────────────────────────────────────────────
   const bundledDir = path.join(extensionPath, "rules");
@@ -233,6 +472,7 @@ export function buildRulesIndex(
     bundledNames = fs
       .readdirSync(bundledDir)
       .filter((n) => /\.ya?ml$/i.test(n))
+      .filter((n) => n === "default.yaml" || n === "taint.yaml")
       .sort();
   } catch {
     // Extension was never installed correctly — emit a zero-file index so the
@@ -241,56 +481,48 @@ export function buildRulesIndex(
   for (const name of bundledNames) {
     const absPath = path.join(bundledDir, name);
     const fileId  = `bundled/${name}`;
-    const parsed  = parseRulesFile(absPath, fileId, "bundled");
+    const relPath = `rules/${name}`;
+    const enabled = policyState.activePolicyFiles.has(relPath);
+    const parsed  = parseRulesFile(absPath, fileId, "bundled", policyState.disabledRules, enabled);
     files.push({
       id:         fileId,
-      path:       `rules/${name}`,
+      path:       relPath,
       absPath,
       source:     "bundled",
       desc:       describeBundled(name),
       updatedAt:  fileMtimeIso(absPath),
       ruleCount:  parsed.rules.length,
       severities: parsed.severities,
+      enabled,
       parseError: parsed.parseError,
     });
     rules.push(...parsed.rules);
   }
 
-  // ── Custom (workspace .vibesec.yaml) ───────────────────────────────────
-  if (workspaceRoot) {
-    const customAbs = path.join(workspaceRoot, ".vibesec.yaml");
-    if (fs.existsSync(customAbs)) {
-      const fileId = "custom/.vibesec.yaml";
-      const parsed = parseRulesFile(customAbs, fileId, "custom");
-      files.push({
-        id:         fileId,
-        path:       ".vibesec.yaml",
-        absPath:    customAbs,
-        source:     "custom",
-        desc:       "Workspace policy — presets, severity overrides, custom rules.",
-        updatedAt:  fileMtimeIso(customAbs),
-        ruleCount:  parsed.rules.length,
-        severities: parsed.severities,
-        parseError: parsed.parseError,
-      });
-      rules.push(...parsed.rules);
-    }
+  // ── Tool policy folder ───────────────────────────────────────────────
+  for (const item of discoverToolPolicyFiles(extensionPath)) {
+    const fileId = `custom/${item.rel}`;
+    const enabled = policyState.activePolicyFiles.has(item.rel);
+    const parsed = parseRulesFile(item.abs, fileId, "custom", policyState.disabledRules, enabled);
+    files.push({
+      id:         fileId,
+      path:       item.rel,
+      absPath:    item.abs,
+      source:     "custom",
+      desc:       "Tool policy file — stored inside VibeSec's rules/policies folder.",
+      updatedAt:  fileMtimeIso(item.abs),
+      ruleCount:  parsed.rules.length,
+      severities: parsed.severities,
+      enabled,
+      parseError: parsed.parseError,
+    });
+    rules.push(...parsed.rules);
   }
 
-  // ── External placeholder ───────────────────────────────────────────────
-  // Reserved tab so the design's three-column summary (Bundled / Custom /
-  // External) keeps its shape. The Rules page renders this row as a
-  // disabled "coming soon" affordance — no rules attach to it in v1.
-  files.push({
-    id:         "external/placeholder",
-    path:       "external registries",
-    absPath:    null,
-    source:     "external",
-    desc:       "Pull packs from p/owasp-top-ten, r/python.lang.security, etc. Coming in a later sprint.",
-    updatedAt:  null,
-    ruleCount:  0,
-    severities: { error: 0, warning: 0, info: 0 },
-  });
+  // Workspace-created .vibesec*.yaml files are intentionally not listed here.
+  // New policies created from VibeSec are stored in the tool policy folder
+  // (rules/policies) so the workspace file tree stays clean.
+
 
   return { files, rules };
 }

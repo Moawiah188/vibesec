@@ -1,90 +1,65 @@
-# VibeSec Taint Ruleset
+# VibeSec Default Taint Policy
+# File: rules/taint.yaml
+# Purpose: high-confidence source -> sink data-flow checks for VibeSec v0.8.5+
 #
-# Intra-file taint analysis using Semgrep's free `mode: taint` engine.
-# Each rule defines:
-#   • pattern-sources    — where untrusted data enters (request bodies, argv, env)
-#   • pattern-sinks      — where it becomes dangerous (exec, query, fs, deserialize)
-#   • pattern-sanitizers — calls that neutralise taint before it reaches a sink
+# This file is a Semgrep-compatible taint ruleset. It is designed to be used as:
+#   presets:
+#     - vibesec:default
+#     - vibesec:taint
+# or as the active taint policy file in VibeSec Control Center.
 #
-# Semgrep tracks the flow from any source → through assignments and helper
-# functions → to a sink, all within a single file. The matched finding's
-# `extra.dataflow_trace` carries the source location, intermediate variables,
-# and sink location — VibeSec surfaces that as a Data flow card in the panel.
-#
-# Activate via `presets: [vibesec:taint]` in .vibesec.yaml.
+# Main idea:
+#   source = untrusted input such as request body/query/params/headers/cookies/files
+#   sink   = dangerous function such as SQL execution, command execution, HTML output,
+#            file access, URL fetching, or unsafe deserialization
+#   finding = source data reaches sink without a known sanitizer
 
 rules:
 
-  # ───────────────────────────────────────────────────────────────────────
-  # COMMAND INJECTION — A03:2021 Injection
-  # ───────────────────────────────────────────────────────────────────────
-
-  - id: vibesec.taint-command-injection-python
-    message: >
-      Untrusted input flows into a shell-executing call. Treat all
-      web/CLI/env input as hostile — pass arguments as a list to
-      subprocess.run() with shell=False, or shlex.quote() before
-      composing a command line.
-    severity: ERROR
-    languages: [python]
+  # ──────────────────────────────────────────────────────────────────────────
+  # JavaScript / TypeScript — Command Injection
+  # ──────────────────────────────────────────────────────────────────────────
+  - id: vibesec.taint.command-injection.node
     mode: taint
-    pattern-sources:
-      - pattern: request.args.get(...)
-      - pattern: request.args[...]
-      - pattern: request.form.get(...)
-      - pattern: request.form[...]
-      - pattern: request.values.get(...)
-      - pattern: request.values[...]
-      - pattern: request.json
-      - pattern: request.data
-      - pattern: request.cookies.get(...)
-      - pattern: request.cookies[...]
-      - pattern: request.headers.get(...)
-      - pattern: request.headers[...]
-      - pattern: input(...)
-      - pattern: sys.argv[...]
-      - pattern: os.environ.get(...)
-      - pattern: os.environ[...]
-    pattern-sinks:
-      - pattern: subprocess.$FUNC(..., shell=True, ...)
-      - pattern: os.system(...)
-      - pattern: os.popen(...)
-    pattern-sanitizers:
-      - pattern: shlex.quote(...)
-    metadata:
-      category: security
-      cwe: "CWE-78"
-      owasp: "A03:2021 Injection"
-      confidence: HIGH
-      technology: [python]
-
-  - id: vibesec.taint-command-injection-node
-    message: >
-      Untrusted input flows into a shell-executing call. Use
-      child_process.execFile() or child_process.spawn() with an argument
-      array instead of exec/execSync, and never concatenate user input
-      into a shell command.
-    severity: ERROR
     languages: [javascript, typescript]
-    mode: taint
+    severity: ERROR
+    message: Untrusted input reaches a command execution sink. Avoid exec/execSync with user input; use execFile/spawn with fixed arguments or an allowlist.
     pattern-sources:
-      - pattern: $REQ.body
-      - pattern: $REQ.body.$FIELD
-      - pattern: $REQ.query
-      - pattern: $REQ.query.$FIELD
-      - pattern: $REQ.params
-      - pattern: $REQ.params.$FIELD
-      - pattern: $REQ.headers
-      - pattern: $REQ.headers.$FIELD
-      - pattern: $REQ.cookies
-      - pattern: $REQ.cookies.$FIELD
-      - pattern: process.argv[...]
-      - pattern: process.env.$VAR
+      - pattern: '$REQ.query'
+      - pattern: '$REQ.query.$FIELD'
+      - pattern: '$REQ.params'
+      - pattern: '$REQ.params.$FIELD'
+      - pattern: '$REQ.body'
+      - pattern: '$REQ.body.$FIELD'
+      - pattern: '$REQ.headers'
+      - pattern: '$REQ.headers.$FIELD'
+      - pattern: '$REQ.cookies'
+      - pattern: '$REQ.cookies.$FIELD'
+      - pattern: 'process.argv[...]'
+      - pattern: 'process.env.$VAR'
+      - pattern: 'process.env[$VAR]'
+      - pattern: '$FILE.originalname'
+      - pattern: '$REQ.file.originalname'
+      - pattern: '$REQ.files[...].originalname'
     pattern-sinks:
-      - pattern: child_process.exec(...)
-      - pattern: child_process.execSync(...)
-      - pattern: require("child_process").exec(...)
-      - pattern: require("child_process").execSync(...)
+      - patterns:
+          - pattern: 'child_process.exec($CMD, ...)'
+          - focus-metavariable: $CMD
+      - patterns:
+          - pattern: 'child_process.execSync($CMD, ...)'
+          - focus-metavariable: $CMD
+      - patterns:
+          - pattern: 'require("child_process").exec($CMD, ...)'
+          - focus-metavariable: $CMD
+      - patterns:
+          - pattern: 'require("child_process").execSync($CMD, ...)'
+          - focus-metavariable: $CMD
+      - patterns:
+          - pattern: 'exec($CMD, ...)'
+          - focus-metavariable: $CMD
+      - patterns:
+          - pattern: 'execSync($CMD, ...)'
+          - focus-metavariable: $CMD
     metadata:
       category: security
       cwe: "CWE-78"
@@ -92,195 +67,604 @@ rules:
       confidence: HIGH
       technology: [node, javascript, typescript]
 
-  # ───────────────────────────────────────────────────────────────────────
-  # SQL INJECTION — A03:2021 Injection
-  # ───────────────────────────────────────────────────────────────────────
-
-  - id: vibesec.taint-sql-injection-node
-    message: >
-      Untrusted input flows into a SQL query. Use parameterised queries
-      (placeholders + values array) instead of string concatenation or
-      template literals.
-    severity: ERROR
-    languages: [javascript, typescript]
+  # ──────────────────────────────────────────────────────────────────────────
+  # JavaScript / TypeScript — SQL Injection
+  # ──────────────────────────────────────────────────────────────────────────
+  - id: vibesec.taint.sql-injection.node
     mode: taint
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Untrusted input reaches a SQL query string. Use parameterized queries, placeholders, or safe ORM query builders.
     pattern-sources:
-      - pattern: $REQ.body
-      - pattern: $REQ.body.$FIELD
-      - pattern: $REQ.query
-      - pattern: $REQ.query.$FIELD
-      - pattern: $REQ.params
-      - pattern: $REQ.params.$FIELD
+      - pattern: '$REQ.query'
+      - pattern: '$REQ.query.$FIELD'
+      - pattern: '$REQ.params'
+      - pattern: '$REQ.params.$FIELD'
+      - pattern: '$REQ.body'
+      - pattern: '$REQ.body.$FIELD'
+      - pattern: '$REQ.headers'
+      - pattern: '$REQ.headers.$FIELD'
+      - pattern: '$REQ.cookies'
+      - pattern: '$REQ.cookies.$FIELD'
+      - pattern: 'process.argv[...]'
+      - pattern: 'process.env.$VAR'
+      - pattern: 'process.env[$VAR]'
     pattern-sinks:
-      - pattern: $DB.query(...)
-      - pattern: $DB.execute(...)
-      - pattern: $DB.run(...)
-      - pattern: $DB.all(...)
-      - pattern: $DB.get(...)
+      - patterns:
+          - pattern: '$DB.query($QUERY, ...)'
+          - focus-metavariable: $QUERY
+      - patterns:
+          - pattern: '$DB.execute($QUERY, ...)'
+          - focus-metavariable: $QUERY
+      - patterns:
+          - pattern: '$DB.run($QUERY, ...)'
+          - focus-metavariable: $QUERY
+      - patterns:
+          - pattern: '$DB.all($QUERY, ...)'
+          - focus-metavariable: $QUERY
+      - patterns:
+          - pattern: '$DB.get($QUERY, ...)'
+          - focus-metavariable: $QUERY
+      - patterns:
+          - pattern: 'sequelize.query($QUERY, ...)'
+          - focus-metavariable: $QUERY
+      - patterns:
+          - pattern: 'prisma.$queryRawUnsafe($QUERY, ...)'
+          - focus-metavariable: $QUERY
+      - patterns:
+          - pattern: '$MODEL.sequelize.query($QUERY, ...)'
+          - focus-metavariable: $QUERY
+    pattern-sanitizers:
+      - pattern: 'Number(...)'
+      - pattern: 'parseInt(...)'
+      - pattern: 'parseFloat(...)'
     metadata:
       category: security
       cwe: "CWE-89"
       owasp: "A03:2021 Injection"
-      confidence: MEDIUM
-      technology: [node, javascript, typescript]
-
-  # ───────────────────────────────────────────────────────────────────────
-  # PATH TRAVERSAL — A04:2021 Insecure Design
-  # ───────────────────────────────────────────────────────────────────────
-
-  - id: vibesec.taint-path-traversal-python
-    message: >
-      Untrusted input flows into a file-system call. Validate the path
-      against an allowlist of safe locations, or resolve it under a
-      trusted base directory and verify it doesn't escape with
-      `os.path.commonpath`.
-    severity: WARNING
-    languages: [python]
-    mode: taint
-    pattern-sources:
-      - pattern: request.args.get(...)
-      - pattern: request.args[...]
-      - pattern: request.form.get(...)
-      - pattern: request.form[...]
-      - pattern: request.json
-      - pattern: request.values.get(...)
-      - pattern: request.values[...]
-      - pattern: sys.argv[...]
-      - pattern: input(...)
-    pattern-sinks:
-      - pattern: open(...)
-      - pattern: os.path.join(...)
-    metadata:
-      category: security
-      cwe: "CWE-22"
-      owasp: "A04:2021 Insecure Design"
-      confidence: MEDIUM
-      technology: [python]
-
-  - id: vibesec.taint-path-traversal-node
-    message: >
-      Untrusted input flows into a file read. Resolve under a trusted
-      base directory and verify the resolved path stays inside it, or
-      use an allowlist of permitted files.
-    severity: WARNING
-    languages: [javascript, typescript]
-    mode: taint
-    pattern-sources:
-      - pattern: $REQ.body
-      - pattern: $REQ.body.$FIELD
-      - pattern: $REQ.query
-      - pattern: $REQ.query.$FIELD
-      - pattern: $REQ.params
-      - pattern: $REQ.params.$FIELD
-    pattern-sinks:
-      - pattern: fs.readFile(...)
-      - pattern: fs.readFileSync(...)
-      - pattern: fs.createReadStream(...)
-    metadata:
-      category: security
-      cwe: "CWE-22"
-      owasp: "A04:2021 Insecure Design"
-      confidence: MEDIUM
-      technology: [node, javascript, typescript]
-
-  # ───────────────────────────────────────────────────────────────────────
-  # UNSAFE DESERIALIZATION — A08:2021 Software and Data Integrity Failures
-  # ───────────────────────────────────────────────────────────────────────
-
-  - id: vibesec.taint-unsafe-deserialization-python
-    message: >
-      Untrusted input flows into a deserializer that can execute code.
-      Never unpickle data from untrusted sources, and pass an explicit
-      SafeLoader to yaml.load(). Use JSON for cross-trust-boundary data.
-    severity: ERROR
-    languages: [python]
-    mode: taint
-    pattern-sources:
-      - pattern: request.data
-      - pattern: request.json
-      - pattern: request.form.get(...)
-      - pattern: request.form[...]
-      - pattern: request.values.get(...)
-      - pattern: request.values[...]
-      - pattern: request.args.get(...)
-      - pattern: request.args[...]
-      - pattern: sys.stdin.read()
-    pattern-sinks:
-      - pattern: pickle.loads(...)
-      - pattern: pickle.load(...)
-      - pattern: yaml.load(...)
-    metadata:
-      category: security
-      cwe: "CWE-502"
-      owasp: "A08:2021 Software and Data Integrity Failures"
       confidence: HIGH
-      technology: [python]
+      technology: [node, javascript, typescript, sql]
 
-  # ───────────────────────────────────────────────────────────────────────
-  # XSS — A03:2021 Injection
-  # ───────────────────────────────────────────────────────────────────────
-
-  - id: vibesec.taint-xss-node
-    message: >
-      Untrusted input flows into an HTML sink without escaping. Use a
-      templating engine that auto-escapes (Handlebars, Pug), assign to
-      textContent for plain text, or sanitise with DOMPurify.
-    severity: WARNING
-    languages: [javascript, typescript]
+  # ──────────────────────────────────────────────────────────────────────────
+  # JavaScript / TypeScript — Reflected / Server-side XSS
+  # ──────────────────────────────────────────────────────────────────────────
+  - id: vibesec.taint.xss.node-response
     mode: taint
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: Untrusted input reaches an HTML response sink. Escape or sanitize output before sending it to the browser.
     pattern-sources:
-      - pattern: $REQ.body
-      - pattern: $REQ.body.$FIELD
-      - pattern: $REQ.query
-      - pattern: $REQ.query.$FIELD
-      - pattern: $REQ.params
-      - pattern: $REQ.params.$FIELD
+      - pattern: '$REQ.query'
+      - pattern: '$REQ.query.$FIELD'
+      - pattern: '$REQ.params'
+      - pattern: '$REQ.params.$FIELD'
+      - pattern: '$REQ.body'
+      - pattern: '$REQ.body.$FIELD'
+      - pattern: '$REQ.headers'
+      - pattern: '$REQ.headers.$FIELD'
+      - pattern: '$REQ.cookies'
+      - pattern: '$REQ.cookies.$FIELD'
     pattern-sinks:
-      - pattern: $RES.send(...)
-      - pattern: $RES.write(...)
-      - pattern: $RES.end(...)
-      - pattern: $EL.innerHTML = $X
-      - pattern: $EL.outerHTML = $X
-      - pattern: document.write(...)
+      - patterns:
+          - pattern: '$RES.send($HTML, ...)'
+          - focus-metavariable: $HTML
+      - patterns:
+          - pattern: '$RES.write($HTML, ...)'
+          - focus-metavariable: $HTML
+      - patterns:
+          - pattern: '$RES.end($HTML, ...)'
+          - focus-metavariable: $HTML
+      - patterns:
+          - pattern: '$RES.render($VIEW, $DATA, ...)'
+          - focus-metavariable: $DATA
+    pattern-sanitizers:
+      - pattern: 'DOMPurify.sanitize(...)'
+      - pattern: 'sanitizeHtml(...)'
+      - pattern: 'escapeHtml(...)'
+      - pattern: 'validator.escape(...)'
     metadata:
       category: security
       cwe: "CWE-79"
       owasp: "A03:2021 Injection"
       confidence: MEDIUM
-      technology: [node, javascript, typescript]
+      technology: [node, javascript, typescript, express]
 
-  # ───────────────────────────────────────────────────────────────────────
-  # SSRF — A10:2021 Server-Side Request Forgery
-  # ───────────────────────────────────────────────────────────────────────
-
-  - id: vibesec.taint-ssrf-python
-    message: >
-      Untrusted input flows into an outbound HTTP call, enabling SSRF.
-      Restrict the URL to an allowlist of safe hosts, or resolve the
-      host and reject internal/private IP ranges (RFC 1918, loopback,
-      link-local, metadata service).
-    severity: WARNING
-    languages: [python]
+  # ──────────────────────────────────────────────────────────────────────────
+  # JavaScript / TypeScript — DOM XSS
+  # ──────────────────────────────────────────────────────────────────────────
+  - id: vibesec.taint.xss.dom
     mode: taint
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: Untrusted input reaches a DOM HTML sink. Use textContent or sanitize HTML before assigning it to the DOM.
     pattern-sources:
-      - pattern: request.args.get(...)
-      - pattern: request.args[...]
-      - pattern: request.form.get(...)
-      - pattern: request.form[...]
-      - pattern: request.json
-      - pattern: request.values.get(...)
-      - pattern: request.values[...]
+      - pattern: 'location.search'
+      - pattern: 'location.hash'
+      - pattern: 'location.href'
+      - pattern: 'document.location'
+      - pattern: 'document.URL'
+      - pattern: 'new URLSearchParams(...).get(...)'
+      - pattern: '$SEARCHPARAMS.get(...)'
+      - pattern: 'localStorage.getItem(...)'
+      - pattern: 'sessionStorage.getItem(...)'
+      - pattern: '$REQ.query.$FIELD'
+      - pattern: '$REQ.body.$FIELD'
+      - pattern: '$REQ.params.$FIELD'
     pattern-sinks:
-      - pattern: requests.get(...)
-      - pattern: requests.post(...)
-      - pattern: requests.request(...)
-      - pattern: urllib.request.urlopen(...)
-      - pattern: urllib.urlopen(...)
-      - pattern: httpx.get(...)
-      - pattern: httpx.post(...)
+      - patterns:
+          - pattern: '$EL.innerHTML = $HTML'
+          - focus-metavariable: $HTML
+      - patterns:
+          - pattern: '$EL.outerHTML = $HTML'
+          - focus-metavariable: $HTML
+      - patterns:
+          - pattern: 'document.write($HTML, ...)'
+          - focus-metavariable: $HTML
+      - patterns:
+          - pattern: 'document.writeln($HTML, ...)'
+          - focus-metavariable: $HTML
+      - patterns:
+          - pattern: '$EL.insertAdjacentHTML($POS, $HTML, ...)'
+          - focus-metavariable: $HTML
+    pattern-sanitizers:
+      - pattern: 'DOMPurify.sanitize(...)'
+      - pattern: 'sanitizeHtml(...)'
+      - pattern: 'escapeHtml(...)'
+      - pattern: 'validator.escape(...)'
+    metadata:
+      category: security
+      cwe: "CWE-79"
+      owasp: "A03:2021 Injection"
+      confidence: MEDIUM
+      technology: [browser, javascript, typescript]
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # JavaScript / TypeScript — Path Traversal
+  # ──────────────────────────────────────────────────────────────────────────
+  - id: vibesec.taint.path-traversal.node
+    mode: taint
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: Untrusted input reaches a file path sink. Normalize the path, enforce a trusted base directory, and use an allowlist.
+    pattern-sources:
+      - pattern: '$REQ.query'
+      - pattern: '$REQ.query.$FIELD'
+      - pattern: '$REQ.params'
+      - pattern: '$REQ.params.$FIELD'
+      - pattern: '$REQ.body'
+      - pattern: '$REQ.body.$FIELD'
+      - pattern: '$REQ.headers'
+      - pattern: '$REQ.headers.$FIELD'
+      - pattern: '$REQ.cookies'
+      - pattern: '$REQ.cookies.$FIELD'
+      - pattern: '$FILE.originalname'
+      - pattern: '$REQ.file.originalname'
+      - pattern: '$REQ.files[...].originalname'
+      - pattern: 'process.argv[...]'
+    pattern-sinks:
+      - patterns:
+          - pattern: 'fs.readFile($PATH, ...)'
+          - focus-metavariable: $PATH
+      - patterns:
+          - pattern: 'fs.readFileSync($PATH, ...)'
+          - focus-metavariable: $PATH
+      - patterns:
+          - pattern: 'fs.createReadStream($PATH, ...)'
+          - focus-metavariable: $PATH
+      - patterns:
+          - pattern: 'fs.writeFile($PATH, ...)'
+          - focus-metavariable: $PATH
+      - patterns:
+          - pattern: 'fs.writeFileSync($PATH, ...)'
+          - focus-metavariable: $PATH
+      - patterns:
+          - pattern: '$RES.sendFile($PATH, ...)'
+          - focus-metavariable: $PATH
+    pattern-sanitizers:
+      - pattern: 'path.basename(...)'
+      - pattern: 'sanitizeFilename(...)'
+      - pattern: 'secureFilename(...)'
+    metadata:
+      category: security
+      cwe: "CWE-22"
+      owasp: "A01:2021 Broken Access Control"
+      confidence: MEDIUM
+      technology: [node, javascript, typescript, filesystem]
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # JavaScript / TypeScript — SSRF
+  # ──────────────────────────────────────────────────────────────────────────
+  - id: vibesec.taint.ssrf.node
+    mode: taint
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: Untrusted input reaches an outbound HTTP request. Allowlist trusted hosts and block private, loopback, and metadata-service addresses.
+    pattern-sources:
+      - pattern: '$REQ.query'
+      - pattern: '$REQ.query.$FIELD'
+      - pattern: '$REQ.params'
+      - pattern: '$REQ.params.$FIELD'
+      - pattern: '$REQ.body'
+      - pattern: '$REQ.body.$FIELD'
+      - pattern: '$REQ.headers'
+      - pattern: '$REQ.headers.$FIELD'
+      - pattern: '$REQ.cookies'
+      - pattern: '$REQ.cookies.$FIELD'
+      - pattern: 'process.env.$VAR'
+      - pattern: 'process.env[$VAR]'
+    pattern-sinks:
+      - patterns:
+          - pattern: 'fetch($URL, ...)'
+          - focus-metavariable: $URL
+      - patterns:
+          - pattern: 'axios.get($URL, ...)'
+          - focus-metavariable: $URL
+      - patterns:
+          - pattern: 'axios.post($URL, ...)'
+          - focus-metavariable: $URL
+      - patterns:
+          - pattern: 'axios.request({url: $URL, ...})'
+          - focus-metavariable: $URL
+      - patterns:
+          - pattern: 'http.get($URL, ...)'
+          - focus-metavariable: $URL
+      - patterns:
+          - pattern: 'https.get($URL, ...)'
+          - focus-metavariable: $URL
+      - patterns:
+          - pattern: 'request($URL, ...)'
+          - focus-metavariable: $URL
+      - patterns:
+          - pattern: 'got($URL, ...)'
+          - focus-metavariable: $URL
     metadata:
       category: security
       cwe: "CWE-918"
       owasp: "A10:2021 Server-Side Request Forgery"
       confidence: MEDIUM
+      technology: [node, javascript, typescript, http]
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # JavaScript / TypeScript — Unsafe Deserialization
+  # ──────────────────────────────────────────────────────────────────────────
+  - id: vibesec.taint.unsafe-deserialization.node
+    mode: taint
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Untrusted input reaches an unsafe deserialization sink. Avoid unsafe deserialize/unserialize functions for attacker-controlled data.
+    pattern-sources:
+      - pattern: '$REQ.body'
+      - pattern: '$REQ.body.$FIELD'
+      - pattern: '$REQ.query'
+      - pattern: '$REQ.query.$FIELD'
+      - pattern: '$REQ.params'
+      - pattern: '$REQ.params.$FIELD'
+      - pattern: '$REQ.headers'
+      - pattern: '$REQ.headers.$FIELD'
+      - pattern: '$REQ.cookies'
+      - pattern: '$REQ.cookies.$FIELD'
+      - pattern: '$REQ.file.buffer'
+      - pattern: '$REQ.files[...].buffer'
+    pattern-sinks:
+      - patterns:
+          - pattern: '$SERIALIZE.unserialize($DATA, ...)'
+          - focus-metavariable: $DATA
+      - patterns:
+          - pattern: 'unserialize($DATA, ...)'
+          - focus-metavariable: $DATA
+      - patterns:
+          - pattern: '$YAML.load($DATA, ...)'
+          - focus-metavariable: $DATA
+      - patterns:
+          - pattern: 'yaml.load($DATA, ...)'
+          - focus-metavariable: $DATA
+    metadata:
+      category: security
+      cwe: "CWE-502"
+      owasp: "A08:2021 Software and Data Integrity Failures"
+      confidence: MEDIUM
+      technology: [node, javascript, typescript]
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Python — Command Injection
+  # ──────────────────────────────────────────────────────────────────────────
+  - id: vibesec.taint.command-injection.python
+    mode: taint
+    languages: [python]
+    severity: ERROR
+    message: Untrusted input reaches a shell command sink. Avoid shell=True and pass fixed argument lists to subprocess.
+    pattern-sources:
+      - pattern: 'request.args.get(...)'
+      - pattern: 'request.args[...]'
+      - pattern: 'request.form.get(...)'
+      - pattern: 'request.form[...]'
+      - pattern: 'request.values.get(...)'
+      - pattern: 'request.values[...]'
+      - pattern: 'request.json'
+      - pattern: 'request.get_json(...)'
+      - pattern: 'request.data'
+      - pattern: 'request.headers.get(...)'
+      - pattern: 'request.headers[...]'
+      - pattern: 'request.cookies.get(...)'
+      - pattern: 'request.cookies[...]'
+      - pattern: 'request.files[...]'
+      - pattern: 'input(...)'
+      - pattern: 'sys.argv[...]'
+      - pattern: 'os.environ.get(...)'
+      - pattern: 'os.environ[...]'
+    pattern-sinks:
+      - patterns:
+          - pattern: 'subprocess.$FUNC($CMD, shell=True, ...)'
+          - focus-metavariable: $CMD
+      - patterns:
+          - pattern: 'os.system($CMD, ...)'
+          - focus-metavariable: $CMD
+      - patterns:
+          - pattern: 'os.popen($CMD, ...)'
+          - focus-metavariable: $CMD
+    pattern-sanitizers:
+      - pattern: 'shlex.quote(...)'
+    metadata:
+      category: security
+      cwe: "CWE-78"
+      owasp: "A03:2021 Injection"
+      confidence: HIGH
+      technology: [python]
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Python — SQL Injection
+  # ──────────────────────────────────────────────────────────────────────────
+  - id: vibesec.taint.sql-injection.python
+    mode: taint
+    languages: [python]
+    severity: ERROR
+    message: Untrusted input reaches a SQL query string. Use parameterized queries or ORM-safe APIs instead of string formatting.
+    pattern-sources:
+      - pattern: 'request.args.get(...)'
+      - pattern: 'request.args[...]'
+      - pattern: 'request.form.get(...)'
+      - pattern: 'request.form[...]'
+      - pattern: 'request.values.get(...)'
+      - pattern: 'request.values[...]'
+      - pattern: 'request.json'
+      - pattern: 'request.get_json(...)'
+      - pattern: 'request.data'
+      - pattern: 'request.headers.get(...)'
+      - pattern: 'request.headers[...]'
+      - pattern: 'input(...)'
+      - pattern: 'sys.argv[...]'
+      - pattern: 'os.environ.get(...)'
+      - pattern: 'os.environ[...]'
+    pattern-sinks:
+      - patterns:
+          - pattern: '$CURSOR.execute($QUERY, ...)'
+          - focus-metavariable: $QUERY
+      - patterns:
+          - pattern: '$CURSOR.executemany($QUERY, ...)'
+          - focus-metavariable: $QUERY
+      - patterns:
+          - pattern: '$CONN.execute($QUERY, ...)'
+          - focus-metavariable: $QUERY
+      - patterns:
+          - pattern: '$DB.session.execute($QUERY, ...)'
+          - focus-metavariable: $QUERY
+      - patterns:
+          - pattern: '$MODEL.objects.raw($QUERY, ...)'
+          - focus-metavariable: $QUERY
+      - patterns:
+          - pattern: 'RawSQL($QUERY, ...)'
+          - focus-metavariable: $QUERY
+    pattern-sanitizers:
+      - pattern: 'int(...)'
+      - pattern: 'float(...)'
+    metadata:
+      category: security
+      cwe: "CWE-89"
+      owasp: "A03:2021 Injection"
+      confidence: HIGH
+      technology: [python, sql]
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Python — XSS / Unsafe Template Rendering
+  # ──────────────────────────────────────────────────────────────────────────
+  - id: vibesec.taint.xss.python-template
+    mode: taint
+    languages: [python]
+    severity: WARNING
+    message: Untrusted input reaches an unsafe template/HTML sink. Use auto-escaping templates or escape/sanitize output.
+    pattern-sources:
+      - pattern: 'request.args.get(...)'
+      - pattern: 'request.args[...]'
+      - pattern: 'request.form.get(...)'
+      - pattern: 'request.form[...]'
+      - pattern: 'request.values.get(...)'
+      - pattern: 'request.values[...]'
+      - pattern: 'request.json'
+      - pattern: 'request.get_json(...)'
+      - pattern: 'request.data'
+      - pattern: 'request.headers.get(...)'
+      - pattern: 'request.headers[...]'
+      - pattern: 'request.cookies.get(...)'
+      - pattern: 'request.cookies[...]'
+    pattern-sinks:
+      - patterns:
+          - pattern: 'render_template_string($HTML, ...)'
+          - focus-metavariable: $HTML
+      - patterns:
+          - pattern: 'Markup($HTML, ...)'
+          - focus-metavariable: $HTML
+      - patterns:
+          - pattern: '$RESP.write($HTML, ...)'
+          - focus-metavariable: $HTML
+    pattern-sanitizers:
+      - pattern: 'html.escape(...)'
+      - pattern: 'escape(...)'
+      - pattern: 'bleach.clean(...)'
+    metadata:
+      category: security
+      cwe: "CWE-79"
+      owasp: "A03:2021 Injection"
+      confidence: MEDIUM
+      technology: [python, flask, django, fastapi]
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Python — Path Traversal
+  # ──────────────────────────────────────────────────────────────────────────
+  - id: vibesec.taint.path-traversal.python
+    mode: taint
+    languages: [python]
+    severity: WARNING
+    message: Untrusted input reaches a file path sink. Validate against an allowlist and keep resolved paths inside a trusted base directory.
+    pattern-sources:
+      - pattern: 'request.args.get(...)'
+      - pattern: 'request.args[...]'
+      - pattern: 'request.form.get(...)'
+      - pattern: 'request.form[...]'
+      - pattern: 'request.values.get(...)'
+      - pattern: 'request.values[...]'
+      - pattern: 'request.json'
+      - pattern: 'request.get_json(...)'
+      - pattern: 'request.data'
+      - pattern: 'request.files[...]'
+      - pattern: 'input(...)'
+      - pattern: 'sys.argv[...]'
+      - pattern: 'os.environ.get(...)'
+      - pattern: 'os.environ[...]'
+    pattern-sinks:
+      - patterns:
+          - pattern: 'open($PATH, ...)'
+          - focus-metavariable: $PATH
+      - patterns:
+          - pattern: 'os.open($PATH, ...)'
+          - focus-metavariable: $PATH
+      - patterns:
+          - pattern: 'pathlib.Path($PATH).read_text(...)'
+          - focus-metavariable: $PATH
+      - patterns:
+          - pattern: 'pathlib.Path($PATH).read_bytes(...)'
+          - focus-metavariable: $PATH
+      - patterns:
+          - pattern: 'Path($PATH).read_text(...)'
+          - focus-metavariable: $PATH
+      - patterns:
+          - pattern: 'Path($PATH).read_bytes(...)'
+          - focus-metavariable: $PATH
+      - patterns:
+          - pattern: 'send_file($PATH, ...)'
+          - focus-metavariable: $PATH
+      - patterns:
+          - pattern: 'send_from_directory($DIR, $PATH, ...)'
+          - focus-metavariable: $PATH
+    pattern-sanitizers:
+      - pattern: 'os.path.basename(...)'
+      - pattern: 'pathlib.Path(...).name'
+      - pattern: 'secure_filename(...)'
+    metadata:
+      category: security
+      cwe: "CWE-22"
+      owasp: "A01:2021 Broken Access Control"
+      confidence: MEDIUM
+      technology: [python, filesystem]
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Python — SSRF
+  # ──────────────────────────────────────────────────────────────────────────
+  - id: vibesec.taint.ssrf.python
+    mode: taint
+    languages: [python]
+    severity: WARNING
+    message: Untrusted input reaches an outbound HTTP request. Use an allowlist and reject private, loopback, and metadata-service addresses.
+    pattern-sources:
+      - pattern: 'request.args.get(...)'
+      - pattern: 'request.args[...]'
+      - pattern: 'request.form.get(...)'
+      - pattern: 'request.form[...]'
+      - pattern: 'request.values.get(...)'
+      - pattern: 'request.values[...]'
+      - pattern: 'request.json'
+      - pattern: 'request.get_json(...)'
+      - pattern: 'request.data'
+      - pattern: 'request.headers.get(...)'
+      - pattern: 'request.headers[...]'
+      - pattern: 'input(...)'
+      - pattern: 'sys.argv[...]'
+      - pattern: 'os.environ.get(...)'
+      - pattern: 'os.environ[...]'
+    pattern-sinks:
+      - patterns:
+          - pattern: 'requests.get($URL, ...)'
+          - focus-metavariable: $URL
+      - patterns:
+          - pattern: 'requests.post($URL, ...)'
+          - focus-metavariable: $URL
+      - patterns:
+          - pattern: 'requests.request($METHOD, $URL, ...)'
+          - focus-metavariable: $URL
+      - patterns:
+          - pattern: 'urllib.request.urlopen($URL, ...)'
+          - focus-metavariable: $URL
+      - patterns:
+          - pattern: 'urllib.urlopen($URL, ...)'
+          - focus-metavariable: $URL
+      - patterns:
+          - pattern: 'httpx.get($URL, ...)'
+          - focus-metavariable: $URL
+      - patterns:
+          - pattern: 'httpx.post($URL, ...)'
+          - focus-metavariable: $URL
+      - patterns:
+          - pattern: 'aiohttp.ClientSession().get($URL, ...)'
+          - focus-metavariable: $URL
+    metadata:
+      category: security
+      cwe: "CWE-918"
+      owasp: "A10:2021 Server-Side Request Forgery"
+      confidence: MEDIUM
+      technology: [python, http]
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Python — Unsafe Deserialization
+  # ──────────────────────────────────────────────────────────────────────────
+  - id: vibesec.taint.unsafe-deserialization.python
+    mode: taint
+    languages: [python]
+    severity: ERROR
+    message: Untrusted input reaches an unsafe deserialization sink. Never unpickle untrusted data and prefer json or yaml.safe_load.
+    pattern-sources:
+      - pattern: 'request.data'
+      - pattern: 'request.json'
+      - pattern: 'request.get_json(...)'
+      - pattern: 'request.files[...]'
+      - pattern: 'request.form.get(...)'
+      - pattern: 'request.form[...]'
+      - pattern: 'request.values.get(...)'
+      - pattern: 'request.values[...]'
+      - pattern: 'request.args.get(...)'
+      - pattern: 'request.args[...]'
+      - pattern: 'sys.stdin.read(...)'
+      - pattern: 'input(...)'
+    pattern-sinks:
+      - patterns:
+          - pattern: 'pickle.loads($DATA, ...)'
+          - focus-metavariable: $DATA
+      - patterns:
+          - pattern: 'pickle.load($DATA, ...)'
+          - focus-metavariable: $DATA
+      - patterns:
+          - pattern: 'yaml.load($DATA, ...)'
+          - focus-metavariable: $DATA
+      - patterns:
+          - pattern: 'marshal.loads($DATA, ...)'
+          - focus-metavariable: $DATA
+      - patterns:
+          - pattern: 'dill.loads($DATA, ...)'
+          - focus-metavariable: $DATA
+    pattern-sanitizers:
+      - pattern: 'yaml.safe_load(...)'
+      - pattern: 'json.loads(...)'
+    metadata:
+      category: security
+      cwe: "CWE-502"
+      owasp: "A08:2021 Software and Data Integrity Failures"
+      confidence: HIGH
       technology: [python]

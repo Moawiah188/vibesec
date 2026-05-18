@@ -3,7 +3,13 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { minimatch } from "minimatch";
 import { FindingsProvider, PanelState } from "./findingsProvider";
-import { LlmClientError, PROVIDER_DEFAULT_MODEL, pingProvider } from "./llmClient";
+import { LlmClientError, pingProvider } from "./llmClient";
+import {
+  PROVIDER_DEFAULT_MODEL,
+  providerFromKeyHint,
+  resolveProviderModel,
+  validateProviderSelection,
+} from "./llmModels";
 import { loadPolicy, PolicyLoadResult } from "./policy";
 import {
   generatePromptForFile,
@@ -52,7 +58,11 @@ const POLICY_TEMPLATE = `# .vibesec.yaml — VibeSec policy file
 # require internet access and may need "semgrep login" first.
 presets:
   - vibesec:default
-  # - vibesec:taint        # uncomment to enable taint analysis
+  # - vibesec:taint         # uncomment or toggle ON in Control Center
+
+# Rules disabled from the Control Center live here.
+# disabledRules:
+#   - vibesec.taint-sql-injection-node
 
 # Severity filter
 severity:
@@ -72,8 +82,9 @@ severity:
 #       cwe: "CWE-95"
 
 # External rule files (workspace-relative paths)
+# You can create one from Control Center → Rules → New rule file.
 # externalRuleFiles:
-#   - custom-rules.yaml
+#   - vibesec-custom-rules.yaml
 
 # File patterns
 # files:
@@ -81,6 +92,62 @@ severity:
 #     - "**/node_modules/**"
 #     - "**/*.test.ts"
 `;
+
+interface PolicyPickItem extends vscode.QuickPickItem {
+  absPath: string;
+}
+
+function discoverPolicyFiles(workspaceRoot: string | undefined, extensionRoot: string): PolicyPickItem[] {
+  const picks: PolicyPickItem[] = [
+    {
+      label: "Bundled normal scan policy",
+      description: "rules/default.yaml",
+      detail: "Default VibeSec rules shipped with the extension",
+      absPath: path.join(extensionRoot, "rules", "default.yaml"),
+    },
+    {
+      label: "Bundled taint policy",
+      description: "rules/taint.yaml",
+      detail: "Taint source-to-sink rules shipped with the extension",
+      absPath: path.join(extensionRoot, "rules", "taint.yaml"),
+    },
+  ];
+
+  const toolPolicyDir = path.join(extensionRoot, "rules", "policies");
+  try {
+    const names = fs.readdirSync(toolPolicyDir)
+      .filter((name) => /\.ya?ml$/i.test(name))
+      .sort();
+    for (const name of names) {
+      picks.push({
+        label: name,
+        description: "tool policy folder",
+        detail: path.join(toolPolicyDir, name),
+        absPath: path.join(toolPolicyDir, name),
+      });
+    }
+  } catch {
+    // No tool policy folder yet; it is created when the user creates/imports one.
+  }
+
+  if (workspaceRoot) {
+    try {
+      const selector = path.join(workspaceRoot, ".vibesec.yaml");
+      if (fs.existsSync(selector)) {
+        picks.push({
+          label: ".vibesec.yaml",
+          description: "workspace selector",
+          detail: selector,
+          absPath: selector,
+        });
+      }
+    } catch {
+      // Ignore workspace read errors; bundled policies remain available.
+    }
+  }
+
+  return picks;
+}
 
 // ── Diagnostics ───────────────────────────────────────────────────────────────
 
@@ -182,6 +249,7 @@ async function expandTargetToFiles(
 
 // ── Policy cache (per workspace root) ────────────────────────────────────────
 
+let extensionRootForPolicies = "";
 const policyCache = new Map<string, PolicyConfig>();
 
 /**
@@ -195,7 +263,7 @@ function getOrLoadPolicy(
   if (!forceReload && policyCache.has(workspaceRoot)) {
     return { ok: true, policy: policyCache.get(workspaceRoot)! };
   }
-  const result = loadPolicy(workspaceRoot);
+  const result = loadPolicy(workspaceRoot, extensionRootForPolicies);
   policyCache.set(workspaceRoot, result.policy);
   return result;
 }
@@ -222,6 +290,7 @@ function showPolicyErrors(errors: string[], source: "load" | "reload"): void {
 // ── Activate ──────────────────────────────────────────────────────────────────
 
 export function activate(context: vscode.ExtensionContext): void {
+  extensionRootForPolicies = context.extensionPath;
   // ── 1. Findings state holder ──────────────────────────────────────────────
   //
   // FindingsProvider is no longer registered as a TreeView — the analysis
@@ -285,28 +354,10 @@ export function activate(context: vscode.ExtensionContext): void {
       showInlineDecorations: cfg.get<boolean>("showInlineDecorations", true),
       llmProvider:           cfg.get<LlmProvider>("llmProvider", "anthropic"),
       llmModel:              (cfg.get<string>("llmModel", "") || "").trim(),
+      llmCustomProviderName: (cfg.get<string>("llmCustomProviderName", "") || "").trim(),
+      llmCustomBaseUrl:      (cfg.get<string>("llmCustomBaseUrl", "") || "").trim(),
       promptMode:            cfg.get<PromptMode>("promptMode", "perFile"),
     };
-  }
-
-  /**
-   * Resolve the model id to use for a given provider. Falls back to the
-   * provider's default if the user hasn't set llmModel or set it to a
-   * model that obviously belongs to a different provider.
-   */
-  function resolveModel(provider: LlmProvider, configured: string): string {
-    const fallback = PROVIDER_DEFAULT_MODEL[provider];
-    if (configured === "") { return fallback; }
-    // Heuristic: if the model id obviously belongs to another provider, fall
-    // back to the chosen provider's default. Saves users from "anthropic +
-    // gpt-5-nano" misconfigurations after switching providers.
-    const looksLikeOpenAI    = /^gpt[-_]/i.test(configured) || /^o\d/i.test(configured);
-    const looksLikeAnthropic = /^claude[-_]/i.test(configured);
-    const looksLikeGemini    = /^gemini[-_]/i.test(configured);
-    if (provider === "anthropic" && (looksLikeOpenAI || looksLikeGemini)) { return fallback; }
-    if (provider === "openai"    && (looksLikeAnthropic || looksLikeGemini)) { return fallback; }
-    if (provider === "gemini"    && (looksLikeOpenAI    || looksLikeAnthropic)) { return fallback; }
-    return configured;
   }
 
   function setContextState(kind: PanelState["kind"]): void {
@@ -343,17 +394,30 @@ export function activate(context: vscode.ExtensionContext): void {
       return;
     }
 
-    // Resolve a workspace root. Use the workspace folder of the first target
-    // when possible, otherwise fall back to the first open workspace folder.
+    // Resolve a scan root. Prefer the real VS Code workspace when the target is
+    // inside one. If the Analysis panel opened an external folder, use that
+    // selected target's folder instead of silently falling back to the old
+    // VS Code workspace.
     const firstFolder = vscode.workspace.getWorkspaceFolder(targets[0]);
-    const workspaceRoot = firstFolder?.uri.fsPath
-      ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    let workspaceRoot: string | undefined = firstFolder?.uri.fsPath;
+
+    if (!workspaceRoot) {
+      try {
+        const targetPath = targets[0].fsPath;
+        const stat = await fs.promises.lstat(targetPath);
+        workspaceRoot = stat.isDirectory() ? targetPath : path.dirname(targetPath);
+      } catch {
+        workspaceRoot = undefined;
+      }
+    }
+
+    workspaceRoot = workspaceRoot ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
     if (!workspaceRoot) {
       vscode.window.showWarningMessage(
-        "VibeSec: No workspace folder is open. Open a folder to use VibeSec.",
+        "VibeSec: Choose a folder or file in the Analysis panel before scanning.",
       );
-      updatePanel({ kind: "error", message: "No workspace folder is open." });
+      updatePanel({ kind: "error", message: "No scan root is available." });
       return;
     }
 
@@ -664,29 +728,21 @@ export function activate(context: vscode.ExtensionContext): void {
       const workspaceRoot = folder?.uri.fsPath
         ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
-      if (!workspaceRoot) {
-        vscode.window.showWarningMessage(
-          "VibeSec: No workspace folder open — cannot create policy file."
-        );
-        return;
+      const picks = discoverPolicyFiles(workspaceRoot, context.extensionPath);
+      const picked = await vscode.window.showQuickPick(picks, {
+        title: "VibeSec — Open policy file",
+        placeHolder: "Choose a bundled, tool-folder, or workspace selector policy YAML to open",
+        ignoreFocusOut: true,
+      });
+      if (!picked) { return; }
+
+      try {
+        const uri = vscode.Uri.file(picked.absPath);
+        await vscode.window.showTextDocument(uri);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        vscode.window.showErrorMessage(`VibeSec: Could not open policy file: ${msg}`);
       }
-
-      const policyPath = path.join(workspaceRoot, ".vibesec.yaml");
-
-      if (!fs.existsSync(policyPath)) {
-        try {
-          fs.writeFileSync(policyPath, POLICY_TEMPLATE, "utf-8");
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          vscode.window.showErrorMessage(
-            `VibeSec: Could not create .vibesec.yaml: ${msg}`
-          );
-          return;
-        }
-      }
-
-      const uri = vscode.Uri.file(policyPath);
-      await vscode.window.showTextDocument(uri);
     }
   );
 
@@ -729,9 +785,16 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.window.showWarningMessage("VibeSec: Empty key — nothing was saved.");
         return;
       }
-      await setApiKey(context, provider, trimmed);
+      const resolvedProvider = providerFromKeyHint(provider, trimmed);
+      await setApiKey(context, resolvedProvider, trimmed);
+      const cfg = vscode.workspace.getConfiguration("vibesec");
+      const target = vscode.workspace.workspaceFolders?.length
+        ? vscode.ConfigurationTarget.Workspace
+        : vscode.ConfigurationTarget.Global;
+      await cfg.update("llmProvider", resolvedProvider, target);
+      await cfg.update("llmModel", PROVIDER_DEFAULT_MODEL[resolvedProvider], target);
       vscode.window.showInformationMessage(
-        `VibeSec: ${PROVIDER_LABEL[provider]} API key saved. Run "VibeSec: Test API Key" to verify it.`,
+        `VibeSec: ${PROVIDER_LABEL[resolvedProvider]} API key saved and selected. Run "VibeSec: Test API Key" to verify it.`,
       );
     },
   );
@@ -761,7 +824,13 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
       const cfg   = getConfig();
-      const model = resolveModel(provider, provider === cfg.llmProvider ? cfg.llmModel : "");
+      const model = resolveProviderModel(provider, provider === cfg.llmProvider ? cfg.llmModel : "");
+      const baseUrl = provider === "custom" ? cfg.llmCustomBaseUrl : undefined;
+      const selectionError = validateProviderSelection(provider, model, baseUrl);
+      if (selectionError) {
+        vscode.window.showWarningMessage(`VibeSec: ${selectionError}`);
+        return;
+      }
       await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
@@ -769,7 +838,7 @@ export function activate(context: vscode.ExtensionContext): void {
         },
         async () => {
           try {
-            await pingProvider(provider, key, model);
+            await pingProvider(provider, key, model, baseUrl);
             vscode.window.showInformationMessage(
               `VibeSec: ${PROVIDER_LABEL[provider]} (${model}) responded — your key works.`,
             );
@@ -807,12 +876,18 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       return { ok: false };
     }
-    const model = resolveModel(provider, cfg.llmModel);
+    const model = resolveProviderModel(provider, cfg.llmModel);
+    const baseUrl = provider === "custom" ? cfg.llmCustomBaseUrl : undefined;
+    const selectionError = validateProviderSelection(provider, model, baseUrl);
+    if (selectionError) {
+      vscode.window.showWarningMessage(`VibeSec: ${selectionError}`);
+      return { ok: false };
+    }
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     return {
       ok: true,
       provider,
-      opts: { provider, apiKey, model, workspaceRoot },
+      opts: { provider, apiKey, model, baseUrl, workspaceRoot },
     };
   }
 
@@ -820,6 +895,10 @@ export function activate(context: vscode.ExtensionContext): void {
     const msg = err instanceof LlmClientError
       ? err.message
       : err instanceof Error ? err.message : String(err);
+    if (err instanceof LlmClientError && err.statusCode === 429) {
+      vscode.window.showWarningMessage(`VibeSec: ${msg}`);
+      return;
+    }
     vscode.window.showErrorMessage(`VibeSec: ${msg}`);
   }
 

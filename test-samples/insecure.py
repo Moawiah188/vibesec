@@ -12,8 +12,6 @@ import yaml
 
 # A03 — Command Injection
 def run_command(user_input):
-    subprocess.run(user_input, shell=True)  # vibesec: command-injection
-
 
 def delete_file(filename):
     os.system(f"rm -f {filename}")  # vibesec: command-injection

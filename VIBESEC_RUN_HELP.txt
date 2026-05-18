@@ -1,0 +1,15 @@
+How to run VibeSec v0.8.1
+
+1. Open this extracted folder in VS Code.
+2. Run:
+   npm install
+   npm run compile
+3. Press F5.
+4. In the Extension Development Host, click the VibeSec icon.
+
+API key setup:
+- Open Control Center → Settings.
+- Scroll to API keys.
+- Paste your Anthropic, OpenAI, or Gemini key and click Save key.
+- Click Test to verify the key.
+- Keys are saved using VS Code SecretStorage.

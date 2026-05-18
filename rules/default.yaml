@@ -1,445 +1,2647 @@
-# VibeSec Default Ruleset
-# Covers OWASP Top 10 basics for Python, JavaScript, and TypeScript.
-# These rules run 100% locally — no internet, no login, no external API.
-# Passed to Semgrep via --config <this-file>.
+# =============================================================================
+# VibeSec Extended Ruleset — OWASP Top 10 (2021)
+# =============================================================================
+#
+# File:        rules/default.yaml  (or a sibling rule pack)
+# Coverage:    OWASP Top 10 2021 — A01 through A10
+# Languages:   Python, JavaScript, TypeScript
+# Runtime:     100% local — no internet, no telemetry, no external API
+# Loaded by:   Semgrep via --config <this-file>, invoked by src/scanner.ts
+#
+# -----------------------------------------------------------------------------
+# Attribution & copyright notice
+# -----------------------------------------------------------------------------
+# This rule pack is original work written for the VibeSec project.
+#
+# Each rule cites the following PUBLIC, NON-PROFIT, COPYRIGHT-CLEAR reference
+# taxonomies *by identifier only* (e.g. "CWE-78", "A03:2021"). Short factual
+# labels and numeric identifiers from these reference frameworks are not
+# copyrightable and may be cited freely from any project, commercial or not:
+#
+#   - OWASP Top 10 — Open Worldwide Application Security Project, a 501(c)(3)
+#     non-profit. The Top 10 document itself is CC-BY-SA 4.0; we cite category
+#     IDs only, which are bare factual references and outside the scope of
+#     copyright.
+#         https://owasp.org/Top10/
+#
+#   - OWASP ASVS — Application Security Verification Standard. CC-BY-SA 4.0.
+#         https://owasp.org/www-project-application-security-verification-standard/
+#
+#   - CWE — Common Weakness Enumeration. Maintained by The MITRE Corporation
+#     as a federally funded research and development center. CWE content is
+#     publicly available, U.S. Government-sponsored, and free to use.
+#         https://cwe.mitre.org/
+#
+#   - NIST SSDF (SP 800-218) — Secure Software Development Framework, US
+#     National Institute of Standards and Technology. US Government work,
+#     public domain in the United States.
+#         https://csrc.nist.gov/Projects/ssdf
+#
+# Every rule message, remediation note, and pattern definition in this file
+# was authored from scratch. No content has been copied, paraphrased closely,
+# or adapted from Semgrep Registry, Snyk Code, GitHub Advanced Security,
+# SonarSource, Checkmarx, Fortify, Veracode, or any other proprietary or
+# commercially licensed source. The Semgrep pattern syntax itself is an
+# open specification.
+#
+# License: MIT (same as the rest of the VibeSec project)
+# =============================================================================
+
 
 rules:
+  - id: vibesec.cors-wildcard-origin-express
+    message: 'A wildcard CORS origin ("*") lets any website read responses from this endpoint. If the endpoint serves authenticated data, list trusted origins explicitly and validate incoming Origin against
+      that allowlist.
 
-  # ───────────────────────────────────────────────────────────────────────
-  # A03:2021 — INJECTION
-  # ───────────────────────────────────────────────────────────────────────
-
-  # ── Command Injection ──
-
-  - id: vibesec.command-injection-subprocess-shell
-    message: >
-      subprocess call with shell=True passes input directly to the system
-      shell, enabling command injection. Use shell=False and pass arguments
-      as a list instead.
-    severity: ERROR
-    languages: [python]
-    patterns:
-      - pattern: subprocess.$FUNC(..., shell=True, ...)
-    metadata:
-      category: security
-      cwe: "CWE-78"
-      owasp: "A03:2021 Injection"
-      confidence: HIGH
-
-  - id: vibesec.command-injection-os-system
-    message: >
-      os.system() passes its argument directly to the system shell. Use
-      subprocess.run() with shell=False and a list of arguments instead.
-    severity: ERROR
-    languages: [python]
-    pattern: os.system(...)
-    metadata:
-      category: security
-      cwe: "CWE-78"
-      owasp: "A03:2021 Injection"
-      confidence: HIGH
-
-  - id: vibesec.command-injection-os-popen
-    message: >
-      os.popen() passes its argument to the shell. Use subprocess.run()
-      with shell=False instead.
-    severity: ERROR
-    languages: [python]
-    pattern: os.popen(...)
-    metadata:
-      category: security
-      cwe: "CWE-78"
-      owasp: "A03:2021 Injection"
-      confidence: HIGH
-
-  - id: vibesec.command-injection-child-process
-    message: >
-      child_process.exec() passes commands through the shell, enabling
-      injection. Use child_process.execFile() or child_process.spawn()
-      with an argument array instead.
-    severity: ERROR
-    languages: [javascript, typescript]
+      '
+    severity: WARNING
+    languages:
+      - javascript
+      - typescript
     patterns:
       - pattern-either:
-          - pattern: child_process.exec(...)
-          - pattern: require("child_process").exec(...)
+          - pattern: '$RES.setHeader("Access-Control-Allow-Origin", "*")
+
+              '
+          - pattern: '$RES.header("Access-Control-Allow-Origin", "*")
+
+              '
     metadata:
       category: security
-      cwe: "CWE-78"
-      owasp: "A03:2021 Injection"
-      confidence: HIGH
-
-  # ── Code Injection ──
-
-  - id: vibesec.code-injection-eval-python
-    message: >
-      eval() executes arbitrary Python expressions. If user input reaches
-      this call, an attacker can run any code. Use ast.literal_eval() for
-      safe parsing, or avoid eval entirely.
-    severity: ERROR
-    languages: [python]
-    pattern: eval(...)
-    metadata:
-      category: security
-      cwe: "CWE-95"
-      owasp: "A03:2021 Injection"
-      confidence: HIGH
-
-  - id: vibesec.code-injection-exec-python
-    message: >
-      exec() executes arbitrary Python code. Avoid using exec() with
-      any data that could be influenced by user input.
-    severity: ERROR
-    languages: [python]
-    pattern: exec(...)
-    metadata:
-      category: security
-      cwe: "CWE-95"
-      owasp: "A03:2021 Injection"
+      cwe: CWE-942
+      owasp: A01:2021 Broken Access Control
       confidence: MEDIUM
+  - id: vibesec.cors-allow-credentials-with-wildcard
+    message: 'Returning Access-Control-Allow-Credentials: true alongside a wildcard origin is explicitly forbidden by the CORS spec and most browsers will reject the response. Pick a concrete origin or
+      remove credentials.
 
-  - id: vibesec.code-injection-eval-js
-    message: >
-      eval() executes arbitrary JavaScript code. If user input reaches
-      this call, an attacker can run any code on the client or server.
+      '
     severity: ERROR
-    languages: [javascript, typescript]
-    pattern: eval(...)
-    metadata:
-      category: security
-      cwe: "CWE-95"
-      owasp: "A03:2021 Injection"
-      confidence: HIGH
-
-  # ── SQL Injection ──
-  # Uses Semgrep's free intra-procedural taint analysis (mode: taint).
-  # Tracks data flow from sources (function parameters, web framework inputs)
-  # through variable assignments to the execute() sink — catching both
-  # inline and two-line patterns regardless of how the string is built.
-
-  - id: vibesec.sql-injection-taint
-    message: >
-      User-controlled data flows into a SQL execute() call, enabling SQL
-      injection. Use parameterised queries or prepared statements instead.
-    severity: ERROR
-    languages: [python]
-    mode: taint
-    pattern-sources:
-      - patterns:
-          - pattern-inside: |
-              def $FUNC(..., $PARAM, ...):
-                  ...
-          - pattern: $PARAM
-      - pattern: request.args.get(...)
-      - pattern: request.args[...]
-      - pattern: request.form.get(...)
-      - pattern: request.form[...]
-      - pattern: request.json
-      - pattern: request.data
-      - pattern: request.values.get(...)
-      - pattern: request.values[...]
-      - pattern: request.cookies.get(...)
-      - pattern: request.cookies[...]
-      - pattern: request.headers.get(...)
-      - pattern: request.headers[...]
-      - pattern: input(...)
-      - pattern: sys.argv[...]
-    pattern-sinks:
-      - pattern: $CURSOR.execute(...)
-    metadata:
-      category: security
-      cwe: "CWE-89"
-      owasp: "A03:2021 Injection"
-      confidence: HIGH
-
-  # ───────────────────────────────────────────────────────────────────────
-  # A02:2021 — CRYPTOGRAPHIC FAILURES
-  # ───────────────────────────────────────────────────────────────────────
-
-  - id: vibesec.weak-hash-md5-python
-    message: >
-      MD5 is cryptographically broken and should not be used for security
-      purposes. Use hashlib.sha256() or hashlib.sha3_256() instead.
-    severity: WARNING
-    languages: [python]
-    pattern: hashlib.md5(...)
-    metadata:
-      category: security
-      cwe: "CWE-327"
-      owasp: "A02:2021 Cryptographic Failures"
-      confidence: HIGH
-
-  - id: vibesec.weak-hash-sha1-python
-    message: >
-      SHA-1 is cryptographically weak and vulnerable to collision attacks.
-      Use hashlib.sha256() or hashlib.sha3_256() instead.
-    severity: WARNING
-    languages: [python]
-    pattern: hashlib.sha1(...)
-    metadata:
-      category: security
-      cwe: "CWE-327"
-      owasp: "A02:2021 Cryptographic Failures"
-      confidence: HIGH
-
-  - id: vibesec.weak-hash-md5-js
-    message: >
-      MD5 is cryptographically broken and should not be used for security
-      purposes. Use crypto.createHash("sha256") instead.
-    severity: WARNING
-    languages: [javascript, typescript]
-    pattern: crypto.createHash("md5")
-    metadata:
-      category: security
-      cwe: "CWE-327"
-      owasp: "A02:2021 Cryptographic Failures"
-      confidence: HIGH
-
-  - id: vibesec.weak-hash-sha1-js
-    message: >
-      SHA-1 is cryptographically weak and vulnerable to collision attacks.
-      Use crypto.createHash("sha256") instead.
-    severity: WARNING
-    languages: [javascript, typescript]
-    pattern: crypto.createHash("sha1")
-    metadata:
-      category: security
-      cwe: "CWE-327"
-      owasp: "A02:2021 Cryptographic Failures"
-      confidence: HIGH
-
-  # ───────────────────────────────────────────────────────────────────────
-  # A07:2021 — IDENTIFICATION AND AUTHENTICATION FAILURES
-  # ───────────────────────────────────────────────────────────────────────
-
-  - id: vibesec.hardcoded-password
-    message: >
-      Hardcoded password detected. Store credentials in environment
-      variables or a secrets manager, never in source code.
-    severity: ERROR
-    languages: [python, javascript, typescript]
-    pattern-either:
-      - pattern: password = "..."
-      - pattern: PASSWORD = "..."
-      - pattern: passwd = "..."
-    metadata:
-      category: security
-      cwe: "CWE-798"
-      owasp: "A07:2021 Identification and Authentication Failures"
-      confidence: MEDIUM
-
-  - id: vibesec.hardcoded-secret
-    message: >
-      Hardcoded secret or API key detected. Use environment variables or
-      a secrets manager instead of embedding secrets in code.
-    severity: ERROR
-    languages: [python, javascript, typescript]
-    pattern-either:
-      - pattern: secret = "..."
-      - pattern: SECRET = "..."
-      - pattern: api_key = "..."
-      - pattern: API_KEY = "..."
-      - pattern: apiKey = "..."
-      - pattern: secret_key = "..."
-      - pattern: SECRET_KEY = "..."
-      - pattern: access_token = "..."
-      - pattern: ACCESS_TOKEN = "..."
-    metadata:
-      category: security
-      cwe: "CWE-798"
-      owasp: "A07:2021 Identification and Authentication Failures"
-      confidence: MEDIUM
-
-  - id: vibesec.hardcoded-token-prefix
-    message: >
-      String looks like a hardcoded API token (starts with a known token
-      prefix). Use environment variables or a secrets manager instead.
-    severity: ERROR
-    languages: [python, javascript, typescript]
-    pattern-regex: '(sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{36}|xox[baprs]-[a-zA-Z0-9\-]+)'
-    metadata:
-      category: security
-      cwe: "CWE-798"
-      owasp: "A07:2021 Identification and Authentication Failures"
-      confidence: HIGH
-
-  # ───────────────────────────────────────────────────────────────────────
-  # A08:2021 — SOFTWARE AND DATA INTEGRITY FAILURES
-  # ───────────────────────────────────────────────────────────────────────
-
-  - id: vibesec.insecure-deserialization-pickle
-    message: >
-      pickle.loads() can execute arbitrary code during deserialization.
-      Never unpickle data from untrusted sources. Use JSON or a safe
-      serialisation format instead.
-    severity: ERROR
-    languages: [python]
-    pattern-either:
-      - pattern: pickle.loads(...)
-      - pattern: pickle.load(...)
-    metadata:
-      category: security
-      cwe: "CWE-502"
-      owasp: "A08:2021 Software and Data Integrity Failures"
-      confidence: HIGH
-
-  - id: vibesec.insecure-yaml-load
-    message: >
-      yaml.load() without a safe Loader can execute arbitrary Python
-      code. Use yaml.safe_load() or yaml.load(data, Loader=SafeLoader).
-    severity: ERROR
-    languages: [python]
+    languages:
+      - javascript
+      - typescript
     patterns:
-      - pattern: yaml.load($DATA)
-      - pattern-not: yaml.load($DATA, Loader=...)
+      - pattern-either:
+          - pattern: 'cors({ origin: "*", credentials: true })
+
+              '
+          - pattern: 'cors({ origin: true, credentials: true })
+
+              '
     metadata:
       category: security
-      cwe: "CWE-502"
-      owasp: "A08:2021 Software and Data Integrity Failures"
+      cwe: CWE-942
+      owasp: A01:2021 Broken Access Control
       confidence: HIGH
+  - id: vibesec.cors-reflect-origin
+    message: 'Reflecting the request Origin header back as Access-Control-Allow-Origin effectively allows any site to act with the user''s credentials. Compare the Origin against a static allowlist before
+      echoing it.
 
-  # ───────────────────────────────────────────────────────────────────────
-  # A03:2021 — XSS (Cross-Site Scripting)
-  # ───────────────────────────────────────────────────────────────────────
-
-  - id: vibesec.xss-innerhtml
-    message: >
-      Setting innerHTML with dynamic content can lead to cross-site
-      scripting (XSS). Use textContent for plain text, or sanitise HTML
-      with a library like DOMPurify.
+      '
     severity: WARNING
-    languages: [javascript, typescript]
-    pattern: $EL.innerHTML = $VALUE
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern: '$RES.setHeader("Access-Control-Allow-Origin", $REQ.headers.origin)
+
+          '
     metadata:
       category: security
-      cwe: "CWE-79"
-      owasp: "A03:2021 Injection"
+      cwe: CWE-942
+      owasp: A01:2021 Broken Access Control
       confidence: MEDIUM
+  - id: vibesec.open-redirect-flask
+    message: 'Redirecting to a URL taken directly from the request enables phishing via your domain. Validate the target against a whitelist of paths or hostnames before calling redirect().
 
-  - id: vibesec.xss-document-write
-    message: >
-      document.write() injects raw HTML into the page. If the content
-      includes user input, it enables XSS. Use DOM manipulation methods
-      or textContent instead.
+      '
     severity: WARNING
-    languages: [javascript, typescript]
-    pattern: document.write(...)
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: 'flask.redirect(request.args.get(...))
+
+              '
+          - pattern: 'redirect(request.args.get(...))
+
+              '
+          - pattern: 'redirect(request.values.get(...))
+
+              '
+          - pattern: 'redirect(request.form.get(...))
+
+              '
     metadata:
       category: security
-      cwe: "CWE-79"
-      owasp: "A03:2021 Injection"
+      cwe: CWE-601
+      owasp: A01:2021 Broken Access Control
       confidence: MEDIUM
+  - id: vibesec.open-redirect-express
+    message: 'Passing request input directly to res.redirect() lets attackers craft links that bounce victims through your domain to a phishing page. Use an allowlist or restrict to known internal paths.
 
-  - id: vibesec.xss-outerhtml
-    message: >
-      Setting outerHTML with dynamic content can lead to XSS. Sanitise
-      the content or use safe DOM APIs instead.
+      '
     severity: WARNING
-    languages: [javascript, typescript]
-    pattern: $EL.outerHTML = $VALUE
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: '$RES.redirect($REQ.query.$_)
+
+              '
+          - pattern: '$RES.redirect($REQ.body.$_)
+
+              '
+          - pattern: '$RES.redirect($REQ.params.$_)
+
+              '
     metadata:
       category: security
-      cwe: "CWE-79"
-      owasp: "A03:2021 Injection"
+      cwe: CWE-601
+      owasp: A01:2021 Broken Access Control
       confidence: MEDIUM
+  - id: vibesec.path-traversal-open-python
+    message: 'Opening a file with a path built from request input lets an attacker escape the intended directory using "../" sequences. Resolve the final absolute path and verify it starts with a fixed
+      base directory.
 
-  # ───────────────────────────────────────────────────────────────────────
-  # A05:2021 — SECURITY MISCONFIGURATION
-  # ───────────────────────────────────────────────────────────────────────
-
-  - id: vibesec.debug-mode-flask
-    message: >
-      Flask running with debug=True exposes the interactive debugger,
-      which allows remote code execution. Never enable debug mode in
-      production.
+      '
     severity: ERROR
-    languages: [python]
-    pattern: $APP.run(..., debug=True, ...)
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: 'open(request.args.get(...), ...)
+
+              '
+          - pattern: 'open(request.values.get(...), ...)
+
+              '
+          - pattern: 'open(request.form.get(...), ...)
+
+              '
+          - pattern: 'open(flask.request.args.get(...), ...)
+
+              '
     metadata:
       category: security
-      cwe: "CWE-215"
-      owasp: "A05:2021 Security Misconfiguration"
+      cwe: CWE-22
+      owasp: A01:2021 Broken Access Control
       confidence: HIGH
+  - id: vibesec.path-traversal-readfile-node
+    message: 'fs.readFile / fs.readFileSync with an unsanitised user-supplied path allows reading any file the server process can access. Normalise the path and confirm it stays inside an allowlisted base
+      directory.
 
-  - id: vibesec.cors-allow-all
-    message: >
-      Setting Access-Control-Allow-Origin to "*" allows any website to
-      make requests to your API. Restrict this to trusted origins.
-    severity: WARNING
-    languages: [python, javascript, typescript]
-    pattern-regex: 'Access-Control-Allow-Origin.*\*'
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: 'fs.readFile($REQ.query.$_, ...)
+
+              '
+          - pattern: 'fs.readFileSync($REQ.query.$_, ...)
+
+              '
+          - pattern: 'fs.readFile($REQ.body.$_, ...)
+
+              '
+          - pattern: 'fs.readFileSync($REQ.body.$_, ...)
+
+              '
+          - pattern: 'fs.readFile($REQ.params.$_, ...)
+
+              '
+          - pattern: 'fs.readFileSync($REQ.params.$_, ...)
+
+              '
     metadata:
       category: security
-      cwe: "CWE-942"
-      owasp: "A05:2021 Security Misconfiguration"
-      confidence: MEDIUM
+      cwe: CWE-22
+      owasp: A01:2021 Broken Access Control
+      confidence: HIGH
+  - id: vibesec.path-traversal-send-file-flask
+    message: 'send_file() with a user-controlled filename leaks arbitrary files on the server. Use send_from_directory() with a fixed base directory, or validate the filename against a whitelist.
 
-  # ───────────────────────────────────────────────────────────────────────
-  # A06:2021 — VULNERABLE AND OUTDATED COMPONENTS
-  # ───────────────────────────────────────────────────────────────────────
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: 'send_file(request.args.get(...), ...)
 
-  - id: vibesec.insecure-random
-    message: >
-      random.random() is not cryptographically secure and should not be
-      used for tokens, passwords, or security-sensitive values. Use the
-      secrets module (secrets.token_hex(), secrets.token_urlsafe()).
-    severity: WARNING
-    languages: [python]
-    pattern-either:
-      - pattern: random.random()
-      - pattern: random.randint(...)
-      - pattern: random.choice(...)
+              '
+          - pattern: 'flask.send_file(request.args.get(...), ...)
+
+              '
+          - pattern: 'send_file(request.values.get(...), ...)
+
+              '
     metadata:
       category: security
-      cwe: "CWE-338"
-      owasp: "A02:2021 Cryptographic Failures"
-      confidence: MEDIUM
+      cwe: CWE-22
+      owasp: A01:2021 Broken Access Control
+      confidence: HIGH
+  - id: vibesec.csrf-disabled-flask-wtf
+    message: 'Disabling Flask-WTF CSRF protection globally exposes every form-based POST endpoint to cross-site request forgery. Keep CSRF enabled and exempt only specific endpoints that require it, with
+      a documented reason.
 
-  - id: vibesec.insecure-math-random
-    message: >
-      Math.random() is not cryptographically secure. Use
-      crypto.getRandomValues() or crypto.randomUUID() for
-      security-sensitive values.
+      '
+    severity: ERROR
+    languages:
+      - python
+    pattern: '$APP.config["WTF_CSRF_ENABLED"] = False
+
+      '
+    metadata:
+      category: security
+      cwe: CWE-352
+      owasp: A01:2021 Broken Access Control
+      confidence: HIGH
+  - id: vibesec.csrf-exempt-decorator
+    message: '@csrf_exempt removes CSRF protection from a Django view. Make sure this endpoint is either anonymous, idempotent, or uses an alternative authentication mechanism (e.g. token-based auth headers).
+
+      '
     severity: WARNING
-    languages: [javascript, typescript]
+    languages:
+      - python
+    pattern: "@csrf_exempt\ndef $V(...):\n    ...\n"
+    metadata:
+      category: security
+      cwe: CWE-352
+      owasp: A01:2021 Broken Access Control
+      confidence: LOW
+  - id: vibesec.idor-direct-id-lookup-flask
+    message: 'Looking up a record purely by an ID taken from the URL with no owner check enables Insecure Direct Object Reference attacks — another user can substitute their ID for yours. Verify the current
+      user owns or has access to the object before returning it.
+
+      '
+    severity: INFO
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: '$MODEL.query.get(request.args.get(...))
+
+              '
+          - pattern: '$MODEL.query.get_or_404(request.args.get(...))
+
+              '
+          - pattern: '$MODEL.objects.get(id=request.GET[...])
+
+              '
+    metadata:
+      category: security
+      cwe: CWE-639
+      owasp: A01:2021 Broken Access Control
+      confidence: LOW
+  - id: vibesec.weak-hash-md5-python
+    message: 'MD5 is broken for any security purpose (collision resistance and preimage resistance are both undermined). For password hashing use bcrypt, scrypt, or argon2; for general-purpose hashing use
+      SHA-256 or SHA-3.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: hashlib.md5(...)
+          - pattern: hashlib.new("md5", ...)
+          - pattern: Crypto.Hash.MD5.new(...)
+    metadata:
+      category: security
+      cwe: CWE-328
+      owasp: A02:2021 Cryptographic Failures
+      confidence: HIGH
+  - id: vibesec.weak-hash-sha1-python
+    message: 'SHA-1 has practical collision attacks and is deprecated for signature and certificate use. Migrate to SHA-256 or SHA-3 for new code, and to a password-specific KDF (bcrypt / argon2 / scrypt)
+      for password hashing.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: hashlib.sha1(...)
+          - pattern: hashlib.new("sha1", ...)
+          - pattern: Crypto.Hash.SHA1.new(...)
+    metadata:
+      category: security
+      cwe: CWE-328
+      owasp: A02:2021 Cryptographic Failures
+      confidence: HIGH
+  - id: vibesec.weak-hash-md4-python
+    message: 'MD4 is severely broken and has been for two decades. There is no legitimate use of MD4 in new code. Replace with SHA-256 or, for passwords, a password-specific KDF.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: hashlib.new("md4", ...)
+          - pattern: hashlib.new("md4")
+    metadata:
+      category: security
+      cwe: CWE-328
+      owasp: A02:2021 Cryptographic Failures
+      confidence: HIGH
+  - id: vibesec.weak-hash-md5-node
+    message: 'crypto.createHash("md5") is unsuitable for any security context. Use crypto.createHash("sha256") for hashing or bcrypt/argon2 for passwords.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    pattern: 'crypto.createHash("md5")
+
+      '
+    metadata:
+      category: security
+      cwe: CWE-328
+      owasp: A02:2021 Cryptographic Failures
+      confidence: HIGH
+  - id: vibesec.weak-hash-sha1-node
+    message: 'crypto.createHash("sha1") is no longer collision-resistant. For signatures and integrity, switch to sha256; for passwords, use bcrypt or argon2.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    pattern: 'crypto.createHash("sha1")
+
+      '
+    metadata:
+      category: security
+      cwe: CWE-328
+      owasp: A02:2021 Cryptographic Failures
+      confidence: HIGH
+  - id: vibesec.password-hashed-with-fast-hash
+    message: 'Plain SHA-256, SHA-512, or MD5 are far too fast to use for password hashing — modern GPUs try billions per second. Use bcrypt, scrypt, argon2id, or PBKDF2 with a high iteration count so each
+      guess is computationally expensive.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: hashlib.sha256($PWD).hexdigest()
+          - pattern: hashlib.sha512($PWD).hexdigest()
+          - pattern: hashlib.md5($PWD).hexdigest()
+    metadata:
+      category: security
+      cwe: CWE-916
+      owasp: A02:2021 Cryptographic Failures
+      confidence: MEDIUM
+  - id: vibesec.weak-cipher-des-pycryptodome
+    message: 'DES uses a 56-bit key and is brute-forceable on commodity hardware in hours. Use AES-GCM (preferred) or AES-CBC with HMAC for new code.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: Crypto.Cipher.DES.new(...)
+          - pattern: Cryptodome.Cipher.DES.new(...)
+    metadata:
+      category: security
+      cwe: CWE-327
+      owasp: A02:2021 Cryptographic Failures
+      confidence: HIGH
+  - id: vibesec.weak-cipher-3des
+    message: 'Triple-DES is deprecated by NIST (SP 800-131A) and offers an effective strength of only 112 bits with known birthday attacks on 64-bit block ciphers. Migrate to AES.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: Crypto.Cipher.DES3.new(...)
+          - pattern: Cryptodome.Cipher.DES3.new(...)
+          - pattern: cryptography.hazmat.primitives.ciphers.algorithms.TripleDES(...)
+    metadata:
+      category: security
+      cwe: CWE-327
+      owasp: A02:2021 Cryptographic Failures
+      confidence: HIGH
+  - id: vibesec.weak-cipher-rc4
+    message: 'RC4 has multiple well-known biases in its output stream and is forbidden by TLS 1.2+ (RFC 7465). Use a modern stream cipher mode such as AES-GCM or ChaCha20-Poly1305.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: Crypto.Cipher.ARC4.new(...)
+          - pattern: Cryptodome.Cipher.ARC4.new(...)
+    metadata:
+      category: security
+      cwe: CWE-327
+      owasp: A02:2021 Cryptographic Failures
+      confidence: HIGH
+  - id: vibesec.weak-cipher-blowfish
+    message: 'Blowfish has a 64-bit block size, which makes it vulnerable to birthday attacks (Sweet32) after about 2^32 blocks. Modern code should use AES (128-bit block) or ChaCha20.
+
+      '
+    severity: WARNING
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: Crypto.Cipher.Blowfish.new(...)
+          - pattern: Cryptodome.Cipher.Blowfish.new(...)
+    metadata:
+      category: security
+      cwe: CWE-327
+      owasp: A02:2021 Cryptographic Failures
+      confidence: MEDIUM
+  - id: vibesec.aes-ecb-mode
+    message: 'ECB mode encrypts identical plaintext blocks to identical ciphertext blocks, leaking patterns in the data (the famous Tux penguin example). Use an authenticated mode such as AES-GCM, or AES-CBC
+      paired with a separate HMAC.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: Crypto.Cipher.AES.new($KEY, AES.MODE_ECB)
+          - pattern: Cryptodome.Cipher.AES.new($KEY, AES.MODE_ECB)
+          - pattern: AES.new($KEY, AES.MODE_ECB)
+          - pattern: 'Cipher($ALGO, modes.ECB())
+
+              '
+    metadata:
+      category: security
+      cwe: CWE-327
+      owasp: A02:2021 Cryptographic Failures
+      confidence: HIGH
+  - id: vibesec.aes-static-iv
+    message: 'Reusing a static IV with CBC, CFB, or GCM mode breaks confidentiality and, for GCM, also breaks integrity. Generate a fresh random IV per message using a CSPRNG and prepend it to the ciphertext.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern: 'AES.new($KEY, AES.MODE_CBC, b"...")
+
+          '
+    metadata:
+      category: security
+      cwe: CWE-329
+      owasp: A02:2021 Cryptographic Failures
+      confidence: MEDIUM
+  - id: vibesec.weak-rsa-key-size
+    message: 'RSA keys below 2048 bits are no longer considered secure (NIST SP 800-131A). Generate keys at 2048 bits minimum; 3072 or 4096 for new long-lived keys.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: RSA.generate(512, ...)
+          - pattern: RSA.generate(1024, ...)
+          - pattern: Crypto.PublicKey.RSA.generate(512, ...)
+          - pattern: Crypto.PublicKey.RSA.generate(1024, ...)
+          - pattern: rsa.generate_private_key(public_exponent=$E, key_size=512, ...)
+          - pattern: rsa.generate_private_key(public_exponent=$E, key_size=1024, ...)
+    metadata:
+      category: security
+      cwe: CWE-326
+      owasp: A02:2021 Cryptographic Failures
+      confidence: HIGH
+  - id: vibesec.insecure-random-python
+    message: 'Python''s random module is a deterministic PRNG seeded from low-entropy sources and is not safe for tokens, session IDs, salts, or any value an attacker should not be able to predict. Use
+      secrets.token_bytes(), secrets.token_urlsafe(), or os.urandom() instead.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: random.random()
+          - pattern: random.randint(...)
+          - pattern: random.choice(...)
+          - pattern: random.choices(...)
+          - pattern: random.sample(...)
+    metadata:
+      category: security
+      cwe: CWE-338
+      owasp: A02:2021 Cryptographic Failures
+      confidence: MEDIUM
+  - id: vibesec.insecure-random-math-js
+    message: 'Math.random() is implementation-defined and predictable. For any security-relevant value (tokens, IDs, salts) use crypto.randomBytes(), crypto.randomUUID(), or crypto.getRandomValues() in
+      the browser.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
     pattern: Math.random()
     metadata:
       category: security
-      cwe: "CWE-338"
-      owasp: "A02:2021 Cryptographic Failures"
-      confidence: LOW
+      cwe: CWE-338
+      owasp: A02:2021 Cryptographic Failures
+      confidence: MEDIUM
+  - id: vibesec.insecure-uuid-v1
+    message: 'UUID v1 is timestamp + MAC-address-based and exposes the host''s hardware address as well as the time of generation. For tokens or identifiers exposed to untrusted parties, use UUID v4 from
+      a CSPRNG.
 
-  # ───────────────────────────────────────────────────────────────────────
-  # A04:2021 — INSECURE DESIGN (Path Traversal)
-  # ───────────────────────────────────────────────────────────────────────
-
-  - id: vibesec.path-traversal-open
-    message: >
-      Constructing a file path with user input and opening it can lead
-      to path traversal attacks. Validate and sanitise the path, or use
-      an allowlist of permitted files.
+      '
     severity: WARNING
-    languages: [python]
+    languages:
+      - python
     patterns:
-      - pattern: open($PATH + ...)
+      - pattern: uuid.uuid1(...)
     metadata:
       category: security
-      cwe: "CWE-22"
-      owasp: "A04:2021 Insecure Design"
-      confidence: LOW
+      cwe: CWE-330
+      owasp: A02:2021 Cryptographic Failures
+      confidence: MEDIUM
+  - id: vibesec.hardcoded-password-assignment-python
+    message: 'Hardcoded passwords end up in version control, CI logs, and crash reports. Read secrets from environment variables, a secret manager, or a config file that is excluded from the repository.
 
-  - id: vibesec.path-traversal-readfile
-    message: >
-      Constructing a file path with user input and reading it can lead
-      to path traversal attacks. Validate and sanitise the path, or use
-      an allowlist of permitted files.
-    severity: WARNING
-    languages: [javascript, typescript]
-    pattern-either:
-      - pattern: fs.readFile($PATH + ..., ...)
-      - pattern: fs.readFileSync($PATH + ..., ...)
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: 'password = "..."
+
+              '
+          - pattern: 'PASSWORD = "..."
+
+              '
+          - pattern: 'passwd = "..."
+
+              '
+          - pattern: 'pwd = "..."
+
+              '
     metadata:
       category: security
-      cwe: "CWE-22"
-      owasp: "A04:2021 Insecure Design"
+      cwe: CWE-798
+      owasp: A02:2021 Cryptographic Failures
       confidence: LOW
+  - id: vibesec.hardcoded-password-assignment-js
+    message: 'Hardcoded passwords end up in version control, CI logs, and crash reports. Read secrets from environment variables, a secret manager, or a config file that is excluded from the repository.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: 'const password = "..."
+
+              '
+          - pattern: 'let password = "..."
+
+              '
+          - pattern: 'var password = "..."
+
+              '
+          - pattern: 'const PASSWORD = "..."
+
+              '
+    metadata:
+      category: security
+      cwe: CWE-798
+      owasp: A02:2021 Cryptographic Failures
+      confidence: LOW
+  - id: vibesec.hardcoded-api-key-pattern
+    message: 'What looks like a long high-entropy string assigned to an API key variable is almost certainly a real secret. Move it to an environment variable or secret manager and rotate the leaked value.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern-regex: (?i)(api[_-]?key|apikey|access[_-]?token|secret[_-]?key)\s*[:=]\s*["'][A-Za-z0-9_\-]{24,}["']
+    metadata:
+      category: security
+      cwe: CWE-798
+      owasp: A02:2021 Cryptographic Failures
+      confidence: MEDIUM
+  - id: vibesec.hardcoded-aws-access-key
+    message: 'An AWS access key ID embedded in source code is a credentials leak. Revoke the key immediately, then move IAM credentials to environment variables, AWS profiles, or instance roles.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+      - javascript
+      - typescript
+    pattern-regex: AKIA[0-9A-Z]{16}
+    metadata:
+      category: security
+      cwe: CWE-798
+      owasp: A02:2021 Cryptographic Failures
+      confidence: HIGH
+  - id: vibesec.hardcoded-private-key-block
+    message: 'A PEM private key checked into source code is an immediate compromise. Revoke and rotate the key, then store the replacement in a secret manager. Add a pre-commit hook to block private key
+      blocks from future commits.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+      - javascript
+      - typescript
+    pattern-regex: '-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----'
+    metadata:
+      category: security
+      cwe: CWE-798
+      owasp: A02:2021 Cryptographic Failures
+      confidence: HIGH
+  - id: vibesec.hardcoded-jwt-secret
+    message: 'The signing secret for a JWT verifier should never appear in source. Anyone with the secret can mint valid tokens for any user. Load it from env vars or a secret store.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: 'jwt.sign($PAYLOAD, "...", ...)
+
+              '
+          - pattern: 'jwt.verify($TOK, "...", ...)
+
+              '
+          - pattern: 'jwt.encode($PAYLOAD, "...", ...)
+
+              '
+          - pattern: 'jwt.decode($TOK, "...", ...)
+
+              '
+    metadata:
+      category: security
+      cwe: CWE-798
+      owasp: A02:2021 Cryptographic Failures
+      confidence: HIGH
+  - id: vibesec.tls-verify-disabled-requests
+    message: 'requests.get(..., verify=False) silently accepts any certificate, opening every call to machine-in-the-middle interception. If you need a private CA, pass the bundle path via verify=; never
+      disable verification.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: requests.get(..., verify=False, ...)
+          - pattern: requests.post(..., verify=False, ...)
+          - pattern: requests.put(..., verify=False, ...)
+          - pattern: requests.delete(..., verify=False, ...)
+          - pattern: requests.patch(..., verify=False, ...)
+          - pattern: requests.head(..., verify=False, ...)
+          - pattern: requests.request(..., verify=False, ...)
+          - pattern: requests.Session().get(..., verify=False, ...)
+    metadata:
+      category: security
+      cwe: CWE-295
+      owasp: A02:2021 Cryptographic Failures
+      confidence: HIGH
+  - id: vibesec.tls-verify-disabled-urllib3
+    message: 'Disabling urllib3 InsecureRequestWarning hides the symptom but doesn''t fix the problem — verification is still off somewhere in your stack. Re-enable certificate verification rather than
+      silencing the warning.
+
+      '
+    severity: WARNING
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: urllib3.disable_warnings(...)
+          - pattern: urllib3.disable_warnings()
+    metadata:
+      category: security
+      cwe: CWE-295
+      owasp: A02:2021 Cryptographic Failures
+      confidence: MEDIUM
+  - id: vibesec.tls-verify-disabled-node
+    message: 'Setting rejectUnauthorized: false on a TLS connection disables certificate verification, allowing any attacker on the path to impersonate the remote host. Provide a custom ca bundle if you
+      need to trust an internal CA.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: '{ rejectUnauthorized: false }
+
+              '
+          - pattern: 'https.request({..., rejectUnauthorized: false, ...}, ...)
+
+              '
+          - pattern: 'tls.connect({..., rejectUnauthorized: false, ...}, ...)
+
+              '
+    metadata:
+      category: security
+      cwe: CWE-295
+      owasp: A02:2021 Cryptographic Failures
+      confidence: HIGH
+  - id: vibesec.tls-verify-disabled-axios
+    message: 'axios configured with httpsAgent.rejectUnauthorized = false will accept any certificate. Configure a CA bundle through the agent options instead of disabling verification.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    pattern: 'new https.Agent({ rejectUnauthorized: false })
+
+      '
+    metadata:
+      category: security
+      cwe: CWE-295
+      owasp: A02:2021 Cryptographic Failures
+      confidence: HIGH
+  - id: vibesec.ssl-default-context-unverified
+    message: 'ssl._create_unverified_context() and ssl._create_stdlib_context() disable certificate validation. For client code use ssl.create_default_context() with the system CA bundle.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: ssl._create_unverified_context(...)
+          - pattern: ssl._create_stdlib_context(...)
+    metadata:
+      category: security
+      cwe: CWE-295
+      owasp: A02:2021 Cryptographic Failures
+      confidence: HIGH
+  - id: vibesec.cleartext-http-url-in-config
+    message: 'Hardcoded http:// URLs to sensitive services bypass transport encryption. Use https:// and let the server''s certificate prove identity; redirect any incoming HTTP to HTTPS.
+
+      '
+    severity: WARNING
+    languages:
+      - python
+      - javascript
+      - typescript
+    pattern-regex: (?i)(api_url|endpoint|base_url|service_url)\s*[:=]\s*["']http://[^"'\s]+["']
+    metadata:
+      category: security
+      cwe: CWE-319
+      owasp: A02:2021 Cryptographic Failures
+      confidence: LOW
+  - id: vibesec.sql-injection-execute-fstring
+    message: 'Building a SQL statement with an f-string lets attacker input alter the query''s structure. Always use a parameterised query — cursor.execute("SELECT ... WHERE id = %s", (user_id,)) — and
+      let the driver handle escaping.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    pattern: '$CUR.execute(f"...{$X}...")
+
+      '
+    metadata:
+      category: security
+      cwe: CWE-89
+      owasp: A03:2021 Injection
+      confidence: HIGH
+  - id: vibesec.sql-injection-execute-percent
+    message: 'cursor.execute("..." % var) interpolates the value before the driver can escape it, producing classic SQL injection. The execute() call already supports parameter substitution — pass values
+      as the second argument.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    pattern: '$CUR.execute("...%s..." % $X)
+
+      '
+    metadata:
+      category: security
+      cwe: CWE-89
+      owasp: A03:2021 Injection
+      confidence: HIGH
+  - id: vibesec.sql-injection-execute-format
+    message: '.format() builds the query string before parameter binding can protect it. Use placeholders supported by your driver (%s, ?, $1) and pass values as the second argument to execute().
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    pattern: '$CUR.execute("...".format(...))
+
+      '
+    metadata:
+      category: security
+      cwe: CWE-89
+      owasp: A03:2021 Injection
+      confidence: HIGH
+  - id: vibesec.sql-injection-execute-concat
+    message: 'Concatenating strings into a SQL statement is the canonical injection bug. Replace the concatenation with a parameterised query so the database driver handles escaping.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: '$CUR.execute("..." + $X + "...")
+
+              '
+          - pattern: '$CUR.execute($PREFIX + $X)
+
+              '
+          - pattern: '$CUR.execute($X + $SUFFIX)
+
+              '
+    metadata:
+      category: security
+      cwe: CWE-89
+      owasp: A03:2021 Injection
+      confidence: HIGH
+  - id: vibesec.sql-injection-sqlalchemy-text
+    message: 'sqlalchemy.text() with string interpolation defeats the ORM''s protection. Use bind parameters — text("SELECT ... WHERE id = :id") with .bindparams() or pass a dict to .execute().
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: 'text(f"...{$X}...")
+
+              '
+          - pattern: 'text("..." + $X + "...")
+
+              '
+          - pattern: 'text("...".format(...))
+
+              '
+    metadata:
+      category: security
+      cwe: CWE-89
+      owasp: A03:2021 Injection
+      confidence: HIGH
+  - id: vibesec.sql-injection-django-raw
+    message: 'Model.objects.raw() with a formatted string is a SQL injection sink. Pass parameters via the params= keyword so Django binds them safely.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: '$MODEL.objects.raw(f"...{$X}...")
+
+              '
+          - pattern: '$MODEL.objects.raw("..." + $X + "...")
+
+              '
+          - pattern: '$MODEL.objects.raw("...".format(...))
+
+              '
+    metadata:
+      category: security
+      cwe: CWE-89
+      owasp: A03:2021 Injection
+      confidence: HIGH
+  - id: vibesec.sql-injection-django-extra-where
+    message: 'The where= argument of QuerySet.extra() is passed straight to SQL. With user-controlled input this is an injection sink. Prefer the ORM''s filter() or pass parameters via params=.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    pattern: '$QS.extra(where=[$X], ...)
+
+      '
+    metadata:
+      category: security
+      cwe: CWE-89
+      owasp: A03:2021 Injection
+      confidence: MEDIUM
+  - id: vibesec.sql-injection-template-literal-node
+    message: 'Building a SQL string from a template literal lets attacker input alter the statement. Use the driver''s placeholder syntax (? for mysql/sqlite, $1 for pg) and pass values as a separate array.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: '$DB.query(`...${$X}...`)
+
+              '
+          - pattern: '$DB.execute(`...${$X}...`)
+
+              '
+          - pattern: '$DB.run(`...${$X}...`)
+
+              '
+    metadata:
+      category: security
+      cwe: CWE-89
+      owasp: A03:2021 Injection
+      confidence: HIGH
+  - id: vibesec.sql-injection-string-concat-node
+    message: 'String concatenation in a SQL query is the textbook injection bug. Switch to parameterised queries — db.query("SELECT ... WHERE id = ?", [id]) — so the driver can escape values safely.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: '$DB.query("..." + $X + "...")
+
+              '
+          - pattern: '$DB.query("..." + $X)
+
+              '
+          - pattern: '$DB.execute("..." + $X + "...")
+
+              '
+          - pattern: '$DB.execute("..." + $X)
+
+              '
+    metadata:
+      category: security
+      cwe: CWE-89
+      owasp: A03:2021 Injection
+      confidence: HIGH
+  - id: vibesec.sql-injection-sequelize-literal
+    message: 'Sequelize''s sequelize.literal() inserts raw SQL into a query. With user-controlled input this becomes a SQL injection. Use bind params via the replacements or bind options instead.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: 'sequelize.literal(`...${$X}...`)
+
+              '
+          - pattern: 'sequelize.literal("..." + $X + "...")
+
+              '
+    metadata:
+      category: security
+      cwe: CWE-89
+      owasp: A03:2021 Injection
+      confidence: HIGH
+  - id: vibesec.nosql-mongo-find-direct-body
+    message: 'Passing req.body directly to a MongoDB query operator allows the attacker to inject query selectors (e.g. {"$ne": null}) and bypass filters. Validate the shape and coerce fields to primitive
+      types before querying.
+
+      '
+    severity: WARNING
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: $COLL.find($REQ.body)
+          - pattern: $COLL.findOne($REQ.body)
+          - pattern: $COLL.findOneAndUpdate($REQ.body, ...)
+          - pattern: $COLL.deleteOne($REQ.body)
+          - pattern: $COLL.deleteMany($REQ.body)
+          - pattern: $COLL.updateOne($REQ.body, ...)
+          - pattern: $COLL.updateMany($REQ.body, ...)
+    metadata:
+      category: security
+      cwe: CWE-943
+      owasp: A03:2021 Injection
+      confidence: MEDIUM
+  - id: vibesec.nosql-mongo-find-direct-query
+    message: 'req.query is parsed by Express into an object — passing it straight to MongoDB lets an attacker craft URLs that inject selectors. Pick out and validate each field by name.
+
+      '
+    severity: WARNING
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: $COLL.find($REQ.query)
+          - pattern: $COLL.findOne($REQ.query)
+    metadata:
+      category: security
+      cwe: CWE-943
+      owasp: A03:2021 Injection
+      confidence: MEDIUM
+  - id: vibesec.nosql-mongo-where-string
+    message: 'The $where operator executes the provided JavaScript on the database server. Combined with user input, this is a remote code execution vector. Rewrite the query using standard MongoDB operators
+      instead.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    pattern-regex: '"\$where"\s*:\s*[`"]'
+    metadata:
+      category: security
+      cwe: CWE-943
+      owasp: A03:2021 Injection
+      confidence: MEDIUM
+  - id: vibesec.command-injection-subprocess-shell-true
+    message: 'subprocess with shell=True passes the command string to /bin/sh, enabling injection through metacharacters like ;, &&, |, and backticks. Use shell=False and pass arguments as a list.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: subprocess.run(..., shell=True, ...)
+          - pattern: subprocess.call(..., shell=True, ...)
+          - pattern: subprocess.Popen(..., shell=True, ...)
+          - pattern: subprocess.check_call(..., shell=True, ...)
+          - pattern: subprocess.check_output(..., shell=True, ...)
+          - pattern: subprocess.getoutput(...)
+          - pattern: subprocess.getstatusoutput(...)
+    metadata:
+      category: security
+      cwe: CWE-78
+      owasp: A03:2021 Injection
+      confidence: HIGH
+  - id: vibesec.command-injection-os-system
+    message: 'os.system() passes its argument directly to the system shell. Replace with subprocess.run([...], shell=False) so arguments are passed as a list and metacharacters lose their special meaning.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    pattern: os.system(...)
+    metadata:
+      category: security
+      cwe: CWE-78
+      owasp: A03:2021 Injection
+      confidence: HIGH
+  - id: vibesec.command-injection-os-popen
+    message: 'os.popen() forks /bin/sh and runs the string under it. Use subprocess.run() with a list argument instead.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: os.popen(...)
+          - pattern: os.popen2(...)
+          - pattern: os.popen3(...)
+          - pattern: os.popen4(...)
+    metadata:
+      category: security
+      cwe: CWE-78
+      owasp: A03:2021 Injection
+      confidence: HIGH
+  - id: vibesec.command-injection-commands-module
+    message: 'The commands module has been removed in Python 3 and is dangerous in Python 2 because it passes through /bin/sh. Use subprocess with a list of arguments instead.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: commands.getoutput(...)
+          - pattern: commands.getstatusoutput(...)
+    metadata:
+      category: security
+      cwe: CWE-78
+      owasp: A03:2021 Injection
+      confidence: HIGH
+  - id: vibesec.command-injection-os-spawn
+    message: 'os.spawnl, os.spawnv, and friends with shell semantics enable command injection if any argument is attacker-controlled. Prefer subprocess and pass arguments as a list.
+
+      '
+    severity: WARNING
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: os.spawnl(...)
+          - pattern: os.spawnle(...)
+          - pattern: os.spawnlp(...)
+          - pattern: os.spawnlpe(...)
+          - pattern: os.spawnv(...)
+          - pattern: os.spawnve(...)
+          - pattern: os.spawnvp(...)
+          - pattern: os.spawnvpe(...)
+    metadata:
+      category: security
+      cwe: CWE-78
+      owasp: A03:2021 Injection
+      confidence: MEDIUM
+  - id: vibesec.command-injection-child-process-exec
+    message: 'child_process.exec() passes the command through /bin/sh, so any user input in the command string can break out via shell metacharacters. Use execFile() or spawn() with an arg array instead.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: child_process.exec(...)
+          - pattern: child_process.execSync(...)
+          - pattern: require("child_process").exec(...)
+          - pattern: require("child_process").execSync(...)
+    metadata:
+      category: security
+      cwe: CWE-78
+      owasp: A03:2021 Injection
+      confidence: HIGH
+  - id: vibesec.command-injection-shelljs-exec
+    message: 'shelljs.exec() spawns a shell to interpret the command string. Switch to child_process.execFile() with a list of arguments, or use a shell-escaping helper if shelljs is required.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    pattern: shelljs.exec(...)
+    metadata:
+      category: security
+      cwe: CWE-78
+      owasp: A03:2021 Injection
+      confidence: HIGH
+  - id: vibesec.code-injection-eval-python
+    message: 'eval() executes arbitrary Python expressions. If any part of the argument is influenced by user input, an attacker can execute arbitrary code. Use ast.literal_eval() for parsing literals or
+      json.loads() for structured data.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    pattern: eval(...)
+    metadata:
+      category: security
+      cwe: CWE-95
+      owasp: A03:2021 Injection
+      confidence: HIGH
+  - id: vibesec.code-injection-exec-python
+    message: 'exec() runs arbitrary Python statements. There is no safe way to pass user-controlled input to exec(); redesign the feature so it doesn''t require dynamic code.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    pattern: exec(...)
+    metadata:
+      category: security
+      cwe: CWE-95
+      owasp: A03:2021 Injection
+      confidence: MEDIUM
+  - id: vibesec.code-injection-compile
+    message: 'compile() followed by exec() or eval() is just eval() with an extra step. The same caveats apply — never pass attacker-influenced input.
+
+      '
+    severity: WARNING
+    languages:
+      - python
+    pattern: compile(...)
+    metadata:
+      category: security
+      cwe: CWE-95
+      owasp: A03:2021 Injection
+      confidence: LOW
+  - id: vibesec.code-injection-eval-js
+    message: 'eval() in JavaScript executes its string argument as code. If the argument contains attacker input, this is remote code execution. If you need to parse JSON, use JSON.parse(); if you need
+      dynamic function creation, redesign to avoid eval.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    pattern: eval(...)
+    metadata:
+      category: security
+      cwe: CWE-95
+      owasp: A03:2021 Injection
+      confidence: HIGH
+  - id: vibesec.code-injection-function-constructor
+    message: 'new Function(string) is equivalent to eval() — it compiles and runs arbitrary code from the string argument. Avoid in any context that touches user input.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: new Function(...)
+          - pattern: Function(...)
+    metadata:
+      category: security
+      cwe: CWE-95
+      owasp: A03:2021 Injection
+      confidence: HIGH
+  - id: vibesec.code-injection-vm-runinthiscontext
+    message: 'vm.runInThisContext() and vm.runInNewContext() compile and execute arbitrary JS. The vm module is not a security sandbox — escaping from it is well-documented. Don''t pass untrusted input.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: vm.runInThisContext(...)
+          - pattern: vm.runInNewContext(...)
+          - pattern: vm.runInContext(...)
+    metadata:
+      category: security
+      cwe: CWE-95
+      owasp: A03:2021 Injection
+      confidence: HIGH
+  - id: vibesec.code-injection-settimeout-string
+    message: 'Passing a string (rather than a function) to setTimeout or setInterval makes them behave like eval(). Always pass a function reference or an arrow function.
+
+      '
+    severity: WARNING
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: setTimeout("...", ...)
+          - pattern: setInterval("...", ...)
+    metadata:
+      category: security
+      cwe: CWE-95
+      owasp: A03:2021 Injection
+      confidence: MEDIUM
+  - id: vibesec.xss-innerhtml-assignment
+    message: 'Assigning untrusted strings to innerHTML lets the browser parse them as HTML and execute any <script> or event handler attributes. Use textContent for plain text, or pass the value through
+      a sanitiser (DOMPurify) before assigning as HTML.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: $EL.innerHTML = $X
+          - pattern: $EL.outerHTML = $X
+    metadata:
+      category: security
+      cwe: CWE-79
+      owasp: A03:2021 Injection
+      confidence: MEDIUM
+  - id: vibesec.xss-document-write
+    message: 'document.write() and document.writeln() inject HTML into the page at runtime. With untrusted input, this is direct XSS. Use DOM APIs (createElement, textContent) or a templating library with
+      auto- escaping instead.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: document.write(...)
+          - pattern: document.writeln(...)
+    metadata:
+      category: security
+      cwe: CWE-79
+      owasp: A03:2021 Injection
+      confidence: HIGH
+  - id: vibesec.xss-react-dangerously-set-inner-html
+    message: 'dangerouslySetInnerHTML bypasses React''s auto-escaping. Anything flowing in must be HTML-safe — sanitise with DOMPurify on the __html field or render as text.
+
+      '
+    severity: WARNING
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: '<$EL dangerouslySetInnerHTML={{ __html: $X }} />
+
+              '
+          - pattern: '<$EL dangerouslySetInnerHTML={{ __html: $X }}></$EL>
+
+              '
+    metadata:
+      category: security
+      cwe: CWE-79
+      owasp: A03:2021 Injection
+      confidence: MEDIUM
+  - id: vibesec.xss-jquery-html
+    message: 'jQuery''s .html() method parses the argument as HTML. If the string contains user input, this is a stored or reflected XSS sink. Use .text() for plain text, or sanitise first.
+
+      '
+    severity: WARNING
+    languages:
+      - javascript
+      - typescript
+    pattern: '$($SEL).html($X)
+
+      '
+    metadata:
+      category: security
+      cwe: CWE-79
+      owasp: A03:2021 Injection
+      confidence: MEDIUM
+  - id: vibesec.xss-flask-markup
+    message: 'Markup() marks a string as safe HTML in Flask/Jinja, bypassing the template engine''s auto-escaping. Make absolutely sure the input is either trusted or already sanitised before wrapping it.
+
+      '
+    severity: WARNING
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: Markup($X)
+          - pattern: flask.Markup($X)
+          - pattern: markupsafe.Markup($X)
+    metadata:
+      category: security
+      cwe: CWE-79
+      owasp: A03:2021 Injection
+      confidence: MEDIUM
+  - id: vibesec.xss-jinja-autoescape-off
+    message: 'Disabling Jinja autoescape on a template that renders user content enables XSS for any unescaped variable. Keep autoescape on and use the | safe filter only on individual values you trust.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: 'Environment(autoescape=False)
+
+              '
+          - pattern: 'jinja2.Environment(autoescape=False)
+
+              '
+    metadata:
+      category: security
+      cwe: CWE-79
+      owasp: A03:2021 Injection
+      confidence: MEDIUM
+  - id: vibesec.xxe-xml-etree-parse
+    message: 'xml.etree''s default parser resolves external entities, which can exfiltrate files or pivot to internal services. Use defusedxml or configure a parser that disables external entity resolution.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: xml.etree.ElementTree.parse(...)
+          - pattern: xml.etree.ElementTree.fromstring(...)
+          - pattern: xml.dom.minidom.parse(...)
+          - pattern: xml.dom.minidom.parseString(...)
+          - pattern: xml.sax.parse(...)
+          - pattern: xml.sax.parseString(...)
+    metadata:
+      category: security
+      cwe: CWE-611
+      owasp: A03:2021 Injection
+      confidence: MEDIUM
+  - id: vibesec.xxe-lxml-resolve-entities
+    message: 'lxml''s XMLParser with resolve_entities=True (the default in many contexts) processes external entities. Pass resolve_entities=False and no_network=True when parsing untrusted XML.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: lxml.etree.XMLParser(..., resolve_entities=True, ...)
+          - pattern: etree.XMLParser(..., resolve_entities=True, ...)
+    metadata:
+      category: security
+      cwe: CWE-611
+      owasp: A03:2021 Injection
+      confidence: HIGH
+  - id: vibesec.ldap-injection-filter-fstring
+    message: 'Building an LDAP filter from an f-string lets an attacker inject operators like *, (, ), and \. Escape the value with ldap.filter.escape_filter_chars() or use a parameterised filter builder.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: '$CONN.search_s(..., f"...{$X}...", ...)
+
+              '
+          - pattern: '$CONN.search(..., f"...{$X}...", ...)
+
+              '
+    metadata:
+      category: security
+      cwe: CWE-90
+      owasp: A03:2021 Injection
+      confidence: MEDIUM
+  - id: vibesec.header-injection-set-header-user-input
+    message: 'Setting a response header to a value containing user input allows CRLF injection, which can split the HTTP response and inject arbitrary headers or a fake body. Strip \r and \n from any attacker-controlled
+      value before passing it to setHeader.
+
+      '
+    severity: WARNING
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: $RES.setHeader($NAME, $REQ.query.$_)
+          - pattern: $RES.setHeader($NAME, $REQ.body.$_)
+          - pattern: $RES.setHeader($NAME, $REQ.params.$_)
+    metadata:
+      category: security
+      cwe: CWE-113
+      owasp: A03:2021 Injection
+      confidence: MEDIUM
+  - id: vibesec.log-injection-user-newlines
+    message: 'Writing untrusted strings directly into log lines lets an attacker inject fake log entries via \r\n, polluting your audit trail. Strip or encode newlines before logging user-controlled values.
+
+      '
+    severity: WARNING
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: 'logger.info(f"...{request.args.get(...)}...")
+
+              '
+          - pattern: 'logger.warning(f"...{request.args.get(...)}...")
+
+              '
+          - pattern: 'logger.error(f"...{request.args.get(...)}...")
+
+              '
+    metadata:
+      category: security
+      cwe: CWE-117
+      owasp: A03:2021 Injection
+      confidence: LOW
+  - id: vibesec.template-injection-jinja-render-string
+    message: 'Jinja2''s render_template_string() compiles the argument as a template. With any user input in that string, an attacker can run arbitrary code through the template sandbox escape. Use render_template()
+      with a fixed template file and pass user input as a context variable.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: 'render_template_string(f"...{$X}...")
+
+              '
+          - pattern: 'render_template_string("..." + $X + "...")
+
+              '
+          - pattern: 'flask.render_template_string(f"...{$X}...")
+
+              '
+    metadata:
+      category: security
+      cwe: CWE-94
+      owasp: A03:2021 Injection
+      confidence: HIGH
+  - id: vibesec.regex-redos-catastrophic-quantifier
+    message: 'Nested quantifiers such as (a+)+ produce exponential backtracking on crafted inputs (ReDoS). Rewrite the expression to avoid overlapping quantifiers or use a regex engine with a linear-time
+      matcher.
+
+      '
+    severity: WARNING
+    languages:
+      - python
+      - javascript
+      - typescript
+    pattern-regex: \([^()]*\+[^()]*\)\+
+    metadata:
+      category: security
+      cwe: CWE-1333
+      owasp: A03:2021 Injection
+      confidence: LOW
+  - id: vibesec.error-disclosure-return-exception-message
+    message: 'Returning raw exception messages to clients leaks framework versions, file paths, and database driver internals. Log the exception server-side with full detail and return a generic error code
+      to the user.
+
+      '
+    severity: WARNING
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: "try:\n    ...\nexcept $E as e:\n    return str(e)\n"
+          - pattern: "try:\n    ...\nexcept $E as e:\n    return {\"error\": str(e)}\n"
+          - pattern: "try:\n    ...\nexcept $E as e:\n    return jsonify({\"error\": str(e)})\n"
+          - pattern: "try:\n    ...\nexcept $E as e:\n    return Response(str(e), ...)\n"
+    metadata:
+      category: security
+      cwe: CWE-209
+      owasp: A04:2021 Insecure Design
+      confidence: LOW
+  - id: vibesec.error-disclosure-return-traceback
+    message: 'Returning a traceback dumps the full call stack to the client, including local file paths and library versions. Capture the traceback server-side and return only a request ID the user can
+      reference.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: 'return traceback.format_exc()
+
+              '
+          - pattern: 'return {"trace": traceback.format_exc()}
+
+              '
+          - pattern: 'return jsonify({"trace": traceback.format_exc()})
+
+              '
+    metadata:
+      category: security
+      cwe: CWE-209
+      owasp: A04:2021 Insecure Design
+      confidence: HIGH
+  - id: vibesec.error-disclosure-stack-trace-in-response-node
+    message: 'Sending err.stack to the client exposes file paths, library versions, and the structure of your codebase. Log the stack server-side and return a sanitised error object.
+
+      '
+    severity: WARNING
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: '$RES.send($ERR.stack)
+
+              '
+          - pattern: '$RES.json({ stack: $ERR.stack })
+
+              '
+          - pattern: '$RES.json({ error: $ERR.stack })
+
+              '
+    metadata:
+      category: security
+      cwe: CWE-209
+      owasp: A04:2021 Insecure Design
+      confidence: MEDIUM
+  - id: vibesec.auth-no-rate-limit-login
+    message: 'Login endpoints should enforce a per-IP and per-account rate limit to slow credential stuffing and password spraying. Confirm a rate limiter (e.g. express-rate-limit, flask-limiter) applies
+      to this route.
+
+      '
+    severity: INFO
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: $APP.post("/login", ...)
+          - pattern: $APP.post("/api/login", ...)
+          - pattern: $APP.post("/signin", ...)
+          - pattern: $ROUTER.post("/login", ...)
+    metadata:
+      category: security
+      cwe: CWE-307
+      owasp: A04:2021 Insecure Design
+      confidence: LOW
+  - id: vibesec.config-allow-anyone-policy
+    message: 'A wildcard or "anyone" policy on a security control disables authorisation. Replace with an explicit allowlist of roles or principals.
+
+      '
+    severity: WARNING
+    languages:
+      - python
+      - javascript
+      - typescript
+    pattern-regex: (?i)(allow|permission|policy)\s*[:=]\s*["'](\*|any|anyone|public)["']
+    metadata:
+      category: security
+      cwe: CWE-1188
+      owasp: A04:2021 Insecure Design
+      confidence: LOW
+  - id: vibesec.mass-assignment-spread-body
+    message: 'Spreading req.body into a database update lets an attacker set fields that should be protected (admin flags, internal IDs, role). Pick fields by name from req.body before writing to the model.
+
+      '
+    severity: WARNING
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: '$MODEL.update({ ...$REQ.body }, ...)
+
+              '
+          - pattern: '$MODEL.create({ ...$REQ.body })
+
+              '
+          - pattern: 'new $MODEL({ ...$REQ.body })
+
+              '
+          - pattern: 'Object.assign($OBJ, $REQ.body)
+
+              '
+    metadata:
+      category: security
+      cwe: CWE-915
+      owasp: A04:2021 Insecure Design
+      confidence: MEDIUM
+  - id: vibesec.flask-debug-true
+    message: 'Flask debug mode enables the Werkzeug interactive debugger, which is a remote code execution endpoint if exposed. Never run with debug= True in production; gate it behind an environment variable.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: $APP.run(..., debug=True, ...)
+          - pattern: $APP.run(debug=True, ...)
+          - pattern: $APP.config["DEBUG"] = True
+          - pattern: $APP.config.update(DEBUG=True)
+    metadata:
+      category: security
+      cwe: CWE-489
+      owasp: A05:2021 Security Misconfiguration
+      confidence: HIGH
+  - id: vibesec.django-debug-true
+    message: 'DEBUG=True in Django shows full tracebacks, environment variables, and template snippets on errors. Set DEBUG=False in any deployment that''s reachable from outside developer machines.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    pattern-regex: ^\s*DEBUG\s*=\s*True
+    metadata:
+      category: security
+      cwe: CWE-489
+      owasp: A05:2021 Security Misconfiguration
+      confidence: MEDIUM
+  - id: vibesec.express-error-handler-stack-trace
+    message: 'The default Express error handler in development mode includes the stack trace in the response. Override the error handler in production and confirm app.get("env") returns "production".
+
+      '
+    severity: INFO
+    languages:
+      - javascript
+      - typescript
+    pattern: '$APP.set("env", "development")
+
+      '
+    metadata:
+      category: security
+      cwe: CWE-489
+      owasp: A05:2021 Security Misconfiguration
+      confidence: LOW
+  - id: vibesec.express-trust-proxy-blanket
+    message: 'Setting "trust proxy" to true makes Express trust the X-Forwarded-For header from any upstream, allowing attackers to spoof their IP. Configure with the specific proxy IP, hop count, or "loopback"
+      instead.
+
+      '
+    severity: WARNING
+    languages:
+      - javascript
+      - typescript
+    pattern: $APP.set("trust proxy", true)
+    metadata:
+      category: security
+      cwe: CWE-348
+      owasp: A05:2021 Security Misconfiguration
+      confidence: MEDIUM
+  - id: vibesec.cookie-samesite-none
+    message: 'sameSite: "none" allows the cookie to be sent on cross-site requests, removing a key CSRF defence. Use "lax" or "strict" unless you have a specific reason to allow cross-site flow.
+
+      '
+    severity: WARNING
+    languages:
+      - javascript
+      - typescript
+    pattern: '{ ..., sameSite: "none", ... }
+
+      '
+    metadata:
+      category: security
+      cwe: CWE-1275
+      owasp: A05:2021 Security Misconfiguration
+      confidence: LOW
+  - id: vibesec.flask-session-cookie-not-secure
+    message: 'SESSION_COOKIE_SECURE = False sends the session cookie over plain HTTP, leaking it to anyone on the network. Set it to True in any configuration that runs behind HTTPS.
+
+      '
+    severity: WARNING
+    languages:
+      - python
+    pattern: '$APP.config["SESSION_COOKIE_SECURE"] = False
+
+      '
+    metadata:
+      category: security
+      cwe: CWE-614
+      owasp: A05:2021 Security Misconfiguration
+      confidence: MEDIUM
+  - id: vibesec.flask-session-cookie-not-httponly
+    message: 'SESSION_COOKIE_HTTPONLY defaults to True in modern Flask; explicitly setting it to False makes the session cookie reachable from XSS. Keep it True.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    pattern: '$APP.config["SESSION_COOKIE_HTTPONLY"] = False
+
+      '
+    metadata:
+      category: security
+      cwe: CWE-1004
+      owasp: A05:2021 Security Misconfiguration
+      confidence: HIGH
+  - id: vibesec.csp-unsafe-inline
+    message: 'A Content-Security-Policy that allows ''unsafe-inline'' for script-src defeats CSP''s main XSS protection. Refactor inline handlers and <script> blocks to external files, or use a per-request
+      nonce.
+
+      '
+    severity: WARNING
+    languages:
+      - javascript
+      - typescript
+      - python
+    pattern-regex: script-src[^;]*'unsafe-inline'
+    metadata:
+      category: security
+      cwe: CWE-693
+      owasp: A05:2021 Security Misconfiguration
+      confidence: MEDIUM
+  - id: vibesec.csp-unsafe-eval
+    message: '''unsafe-eval'' in a CSP allows eval() and new Function() to keep working, undermining the script-execution control. Audit the code that relies on it and refactor away.
+
+      '
+    severity: WARNING
+    languages:
+      - javascript
+      - typescript
+      - python
+    pattern-regex: script-src[^;]*'unsafe-eval'
+    metadata:
+      category: security
+      cwe: CWE-693
+      owasp: A05:2021 Security Misconfiguration
+      confidence: MEDIUM
+  - id: vibesec.django-allowed-hosts-wildcard
+    message: 'ALLOWED_HOSTS = ["*"] disables Django''s Host header validation, enabling host-header injection and cache poisoning. List the specific domains your app serves.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    pattern: 'ALLOWED_HOSTS = ["*"]
+
+      '
+    metadata:
+      category: security
+      cwe: CWE-20
+      owasp: A05:2021 Security Misconfiguration
+      confidence: HIGH
+  - id: vibesec.flask-bind-all-interfaces
+    message: 'Binding Flask to 0.0.0.0 exposes the dev server on every interface, including public-facing ones. For production use a proper WSGI server (gunicorn, uWSGI) behind a reverse proxy.
+
+      '
+    severity: INFO
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: $APP.run(host="0.0.0.0", ...)
+          - pattern: $APP.run(..., host="0.0.0.0", ...)
+    metadata:
+      category: security
+      cwe: CWE-668
+      owasp: A05:2021 Security Misconfiguration
+      confidence: LOW
+  - id: vibesec.chmod-world-writable
+    message: 'chmod 0o777 (or 0o666) grants everyone write access, including attackers who land on the host. Use the principle of least privilege — 0o600 for files, 0o700 for directories owned by the service
+      user.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: os.chmod($P, 0o777)
+          - pattern: os.chmod($P, 0o666)
+          - pattern: os.chmod($P, 511)
+    metadata:
+      category: security
+      cwe: CWE-732
+      owasp: A05:2021 Security Misconfiguration
+      confidence: HIGH
+  - id: vibesec.tempfile-mktemp-insecure
+    message: 'tempfile.mktemp() returns a path without creating the file, leading to a TOCTOU race where an attacker can replace the file before you open it. Use tempfile.mkstemp() or NamedTemporaryFile()
+      instead.
+
+      '
+    severity: WARNING
+    languages:
+      - python
+    pattern: tempfile.mktemp(...)
+    metadata:
+      category: security
+      cwe: CWE-377
+      owasp: A05:2021 Security Misconfiguration
+      confidence: HIGH
+  - id: vibesec.default-credentials-admin-admin
+    message: 'Code that creates or checks an "admin/admin" account is almost always a leftover from development. Remove the default account or force a password reset on first login.
+
+      '
+    severity: WARNING
+    languages:
+      - python
+      - javascript
+      - typescript
+    pattern-regex: (?i)(username|user|login)\s*[:=]\s*["']admin["'].*\n.*(password|pass|pwd)\s*[:=]\s*["']admin["']
+    metadata:
+      category: security
+      cwe: CWE-1392
+      owasp: A05:2021 Security Misconfiguration
+      confidence: LOW
+  - id: vibesec.aws-s3-acl-public-read
+    message: 'ACL "public-read" or "public-read-write" makes every object in the bucket world-readable. Use bucket policies or signed URLs to grant narrowly scoped access instead.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern-regex: ACL\s*[:=]\s*["'](public-read|public-read-write)["']
+          - pattern-regex: '"ACL"\s*:\s*"(public-read|public-read-write)"'
+    metadata:
+      category: security
+      cwe: CWE-200
+      owasp: A05:2021 Security Misconfiguration
+      confidence: HIGH
+  - id: vibesec.aws-iam-policy-action-star
+    message: 'An IAM policy with Action: "*" grants the bearer every action on every resource. Always list the specific actions a role needs.
+
+      '
+    severity: WARNING
+    languages:
+      - python
+      - javascript
+      - typescript
+    pattern-regex: '"Action"\s*:\s*"\*"'
+    metadata:
+      category: security
+      cwe: CWE-732
+      owasp: A05:2021 Security Misconfiguration
+      confidence: MEDIUM
+  - id: vibesec.aws-iam-resource-star
+    message: 'Resource: "*" combined with broad actions extends the policy to every object in the account. Scope policies to the specific ARNs they need to touch.
+
+      '
+    severity: INFO
+    languages:
+      - python
+      - javascript
+      - typescript
+    pattern-regex: '"Resource"\s*:\s*"\*"'
+    metadata:
+      category: security
+      cwe: CWE-732
+      owasp: A05:2021 Security Misconfiguration
+      confidence: LOW
+  - id: vibesec.deprecated-md5crypt-import
+    message: 'passlib''s md5_crypt scheme uses an unsalted MD5 variant and is considered broken for new password storage. Migrate users to argon2 or bcrypt on next login.
+
+      '
+    severity: WARNING
+    languages:
+      - python
+    pattern: from passlib.hash import md5_crypt
+    metadata:
+      category: security
+      cwe: CWE-1104
+      owasp: A06:2021 Vulnerable and Outdated Components
+      confidence: MEDIUM
+  - id: vibesec.deprecated-pycrypto-import
+    message: 'The PyCrypto library (import Crypto from pycrypto) was abandoned in 2014 and has known unpatched issues. Migrate to PyCryptodome or the cryptography library.
+
+      '
+    severity: WARNING
+    languages:
+      - python
+    pattern: import Crypto
+    metadata:
+      category: security
+      cwe: CWE-1104
+      owasp: A06:2021 Vulnerable and Outdated Components
+      confidence: LOW
+  - id: vibesec.deprecated-request-library-node
+    message: 'The `request` package is deprecated since 2020 and no longer receives security fixes. Migrate to undici, got, axios, or the built-in fetch.
+
+      '
+    severity: INFO
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: 'require("request")
+
+              '
+          - pattern: 'import request from "request"
+
+              '
+    metadata:
+      category: security
+      cwe: CWE-1104
+      owasp: A06:2021 Vulnerable and Outdated Components
+      confidence: LOW
+  - id: vibesec.deprecated-md5-pbkdf2-low-iter
+    message: 'PBKDF2 with fewer than 100k iterations and SHA-1 is below current OWASP guidance. Bump iterations and switch to PBKDF2-HMAC-SHA-256, or use argon2id directly.
+
+      '
+    severity: WARNING
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: hashlib.pbkdf2_hmac("sha1", ..., 1000, ...)
+          - pattern: hashlib.pbkdf2_hmac("sha1", ..., 10000, ...)
+    metadata:
+      category: security
+      cwe: CWE-916
+      owasp: A06:2021 Vulnerable and Outdated Components
+      confidence: MEDIUM
+  - id: vibesec.jwt-algorithm-none-python
+    message: 'Decoding a JWT with algorithm "none" accepts unsigned tokens — anyone can forge any payload. Always pass an explicit algorithms list (e.g. ["HS256"] or ["RS256"]) and reject "none".
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: jwt.decode(..., algorithms=["none"], ...)
+          - pattern: jwt.decode(..., algorithm="none", ...)
+    metadata:
+      category: security
+      cwe: CWE-327
+      owasp: A07:2021 Identification and Authentication Failures
+      confidence: HIGH
+  - id: vibesec.jwt-verify-disabled-python
+    message: 'jwt.decode(..., options={"verify_signature": False}) extracts the payload without checking the signature, defeating the entire point of JWT. If you genuinely need to introspect a token before
+      verifying, do so explicitly and never trust the result for authentication.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: 'jwt.decode(..., verify=False, ...)
+
+              '
+          - pattern: 'jwt.decode(..., options={"verify_signature": False}, ...)
+
+              '
+    metadata:
+      category: security
+      cwe: CWE-347
+      owasp: A07:2021 Identification and Authentication Failures
+      confidence: HIGH
+  - id: vibesec.jwt-algorithm-none-node
+    message: 'Allowing the "none" algorithm on the jsonwebtoken library makes every unsigned token valid. Always pass a concrete algorithms list to jwt.verify().
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: 'jwt.verify(..., { algorithms: ["none"], ... }, ...)
+
+              '
+          - pattern: 'jwt.verify(..., { algorithm: "none", ... }, ...)
+
+              '
+    metadata:
+      category: security
+      cwe: CWE-327
+      owasp: A07:2021 Identification and Authentication Failures
+      confidence: HIGH
+  - id: vibesec.jwt-decode-without-verify-node
+    message: 'jwt.decode() in the jsonwebtoken library does NOT verify the signature — it only base64-decodes the payload. Use jwt.verify() anywhere the token is used for authentication.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    pattern: 'jwt.decode($TOKEN)
+
+      '
+    metadata:
+      category: security
+      cwe: CWE-347
+      owasp: A07:2021 Identification and Authentication Failures
+      confidence: MEDIUM
+  - id: vibesec.bcrypt-low-rounds
+    message: 'bcrypt with fewer than 10 rounds is too cheap on modern hardware to adequately slow brute force. Use at least 12 (OWASP guidance); higher if your hardware can afford it.
+
+      '
+    severity: WARNING
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: bcrypt.gensalt(rounds=4)
+          - pattern: bcrypt.gensalt(rounds=6)
+          - pattern: bcrypt.gensalt(rounds=8)
+          - pattern: bcrypt.gensalt(rounds=9)
+          - pattern: bcrypt.gensalt(4)
+          - pattern: bcrypt.gensalt(6)
+          - pattern: bcrypt.gensalt(8)
+          - pattern: bcrypt.gensalt(9)
+    metadata:
+      category: security
+      cwe: CWE-916
+      owasp: A07:2021 Identification and Authentication Failures
+      confidence: HIGH
+  - id: vibesec.bcrypt-low-rounds-node
+    message: 'bcrypt with fewer than 10 rounds in Node is below current OWASP guidance (recommend 12+). Each additional round doubles the cost for both you and an attacker.
+
+      '
+    severity: WARNING
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: bcrypt.hash($PWD, 4, ...)
+          - pattern: bcrypt.hash($PWD, 6, ...)
+          - pattern: bcrypt.hash($PWD, 8, ...)
+          - pattern: bcrypt.hash($PWD, 9, ...)
+          - pattern: bcrypt.hashSync($PWD, 4)
+          - pattern: bcrypt.hashSync($PWD, 6)
+          - pattern: bcrypt.hashSync($PWD, 8)
+          - pattern: bcrypt.hashSync($PWD, 9)
+    metadata:
+      category: security
+      cwe: CWE-916
+      owasp: A07:2021 Identification and Authentication Failures
+      confidence: HIGH
+  - id: vibesec.session-fixation-no-regeneration
+    message: 'Logging a user in without rotating their session ID lets an attacker who fixed the ID before login still hold a valid session. Call the session library''s regeneration method after authentication
+      (req.session.regenerate or session.cycle_key).
+
+      '
+    severity: INFO
+    languages:
+      - javascript
+      - typescript
+    pattern: '$REQ.session.user = $USER
+
+      '
+    metadata:
+      category: security
+      cwe: CWE-384
+      owasp: A07:2021 Identification and Authentication Failures
+      confidence: LOW
+  - id: vibesec.password-min-length-too-short
+    message: 'Enforcing a minimum password length below 8 characters allows trivially guessable passwords. OWASP recommends 8 as a floor, 12+ preferred. The maximum should be at least 64 to permit passphrases.
+
+      '
+    severity: WARNING
+    languages:
+      - python
+      - javascript
+      - typescript
+    pattern-regex: (?i)(min[_-]?length|password[_-]?min)\s*[:=]\s*[1-7]\b
+    metadata:
+      category: security
+      cwe: CWE-521
+      owasp: A07:2021 Identification and Authentication Failures
+      confidence: LOW
+  - id: vibesec.basic-auth-hardcoded
+    message: 'A Basic Authorization header in source contains base64-encoded credentials. Anyone who reads the source has the credentials. Load them from env vars or a secret store.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+      - javascript
+      - typescript
+    pattern-regex: (?i)Authorization\s*[:=]\s*["']Basic\s+[A-Za-z0-9+/]+=*["']
+    metadata:
+      category: security
+      cwe: CWE-798
+      owasp: A07:2021 Identification and Authentication Failures
+      confidence: HIGH
+  - id: vibesec.deserialise-pickle-loads
+    message: 'pickle.loads() invokes __reduce__ on any class in the payload, which is a one-line RCE if the input is attacker-controlled. Use JSON, MessagePack, or another data-only format for untrusted
+      input.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: pickle.loads(...)
+          - pattern: pickle.load(...)
+          - pattern: cPickle.loads(...)
+          - pattern: cPickle.load(...)
+          - pattern: _pickle.loads(...)
+          - pattern: _pickle.load(...)
+    metadata:
+      category: security
+      cwe: CWE-502
+      owasp: A08:2021 Software and Data Integrity Failures
+      confidence: HIGH
+  - id: vibesec.deserialise-marshal-loads
+    message: 'marshal.loads() is even less safe than pickle and produces code objects directly. Never call it on untrusted input.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: marshal.loads(...)
+          - pattern: marshal.load(...)
+    metadata:
+      category: security
+      cwe: CWE-502
+      owasp: A08:2021 Software and Data Integrity Failures
+      confidence: HIGH
+  - id: vibesec.deserialise-shelve-open
+    message: 'shelve uses pickle internally, so opening a shelf controlled by an attacker is equivalent to pickle.loads() on the file''s contents. Switch to a JSON or SQLite-backed format for untrusted
+      persistence.
+
+      '
+    severity: WARNING
+    languages:
+      - python
+    pattern: shelve.open(...)
+    metadata:
+      category: security
+      cwe: CWE-502
+      owasp: A08:2021 Software and Data Integrity Failures
+      confidence: MEDIUM
+  - id: vibesec.deserialise-yaml-load-default
+    message: 'yaml.load() with the default Loader instantiates arbitrary Python objects. Use yaml.safe_load() or pass Loader=yaml.SafeLoader for any input you don''t fully control.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: yaml.load($X)
+          - pattern: yaml.load($X, Loader=yaml.Loader)
+          - pattern: yaml.load($X, Loader=yaml.UnsafeLoader)
+          - pattern: yaml.load($X, Loader=yaml.FullLoader)
+          - pattern: yaml.unsafe_load($X)
+    metadata:
+      category: security
+      cwe: CWE-502
+      owasp: A08:2021 Software and Data Integrity Failures
+      confidence: HIGH
+  - id: vibesec.deserialise-jsonpickle-decode
+    message: 'jsonpickle.decode() can reconstruct arbitrary Python objects via class references embedded in JSON. Treat it as equivalent to pickle.loads() — never run on untrusted input.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    pattern: jsonpickle.decode(...)
+    metadata:
+      category: security
+      cwe: CWE-502
+      owasp: A08:2021 Software and Data Integrity Failures
+      confidence: HIGH
+  - id: vibesec.deserialise-node-serialize
+    message: 'The node-serialize package''s unserialize() executes functions embedded in the payload (this is its documented behaviour). It should never receive attacker input.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: serialize.unserialize($X)
+          - pattern: require("node-serialize").unserialize($X)
+    metadata:
+      category: security
+      cwe: CWE-502
+      owasp: A08:2021 Software and Data Integrity Failures
+      confidence: HIGH
+  - id: vibesec.deserialise-funcster
+    message: 'The funcster package deserialises functions from JSON-like structures, which is direct RCE if the input is attacker-supplied. Migrate to a data-only format.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    pattern: funcster.deepDeserialize(...)
+    metadata:
+      category: security
+      cwe: CWE-502
+      owasp: A08:2021 Software and Data Integrity Failures
+      confidence: HIGH
+  - id: vibesec.dynamic-require-user-input
+    message: 'require() with a path built from user input can load arbitrary files from disk, including .node native modules. Resolve module names through an allowlist before requiring.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: require($REQ.query.$_)
+          - pattern: require($REQ.body.$_)
+          - pattern: require($REQ.params.$_)
+    metadata:
+      category: security
+      cwe: CWE-829
+      owasp: A08:2021 Software and Data Integrity Failures
+      confidence: HIGH
+  - id: vibesec.dynamic-import-user-input
+    message: 'Dynamic import() with user-controlled specifiers can load any module visible to the runtime, including local files via relative paths. Map user input to a fixed set of module identifiers.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: import($REQ.query.$_)
+          - pattern: import($REQ.body.$_)
+          - pattern: import($REQ.params.$_)
+    metadata:
+      category: security
+      cwe: CWE-829
+      owasp: A08:2021 Software and Data Integrity Failures
+      confidence: HIGH
+  - id: vibesec.python-importlib-user-input
+    message: 'Dynamically importing modules whose names come from a request lets the attacker load any installed module — including ones with side effects on import. Use an allowlist of permitted module
+      names.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: importlib.import_module(request.args.get(...))
+          - pattern: importlib.import_module(request.form.get(...))
+          - pattern: __import__(request.args.get(...))
+    metadata:
+      category: security
+      cwe: CWE-829
+      owasp: A08:2021 Software and Data Integrity Failures
+      confidence: HIGH
+  - id: vibesec.npm-install-from-untrusted-source
+    message: 'Installing packages from a URL or git ref taken from user input executes the package''s install scripts on your server. Lock dependencies in package-lock.json or pnpm-lock.yaml and review
+      changes via PR.
+
+      '
+    severity: WARNING
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: 'exec(`npm install ${$X}`, ...)
+
+              '
+          - pattern: 'exec(`yarn add ${$X}`, ...)
+
+              '
+          - pattern: 'exec(`pnpm install ${$X}`, ...)
+
+              '
+    metadata:
+      category: security
+      cwe: CWE-829
+      owasp: A08:2021 Software and Data Integrity Failures
+      confidence: MEDIUM
+  - id: vibesec.python-pip-install-from-url
+    message: 'pip install from a user-supplied URL executes setup.py from the remote source, granting full code execution. Pin dependencies in requirements.txt with hashes and audit changes manually.
+
+      '
+    severity: WARNING
+    languages:
+      - python
+    pattern: 'subprocess.run(["pip", "install", $X], ...)
+
+      '
+    metadata:
+      category: security
+      cwe: CWE-829
+      owasp: A08:2021 Software and Data Integrity Failures
+      confidence: LOW
+  - id: vibesec.logging-entire-request-node
+    message: 'Logging the full Express req object dumps the Authorization header, cookies, and any custom auth tokens to your log pipeline, where they may be exported to third-party log aggregators or kept
+      in backups. Log only the fields you actually need.
+
+      '
+    severity: WARNING
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: console.log($REQ)
+          - pattern: console.log($REQ.headers)
+          - pattern: console.log($REQ.cookies)
+          - pattern: $LOGGER.info($REQ)
+          - pattern: $LOGGER.info($REQ.headers)
+          - pattern: $LOGGER.debug($REQ)
+    metadata:
+      category: security
+      cwe: CWE-532
+      owasp: A09:2021 Security Logging and Monitoring Failures
+      confidence: LOW
+  - id: vibesec.logging-password-variable
+    message: 'Logging a variable named "password", "secret", "token", or similar will write the cleartext value into your log stream and any downstream copies (SIEM, S3, etc). Redact sensitive fields before
+      logging.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+      - javascript
+      - typescript
+    pattern-regex: (?i)(log|logger|console)\.(info|debug|warn|error|log)\s*\(\s*[`"][^`"]*\$\{?\s*(password|passwd|pwd|secret|token|api[_-]?key)\b
+    metadata:
+      category: security
+      cwe: CWE-532
+      owasp: A09:2021 Security Logging and Monitoring Failures
+      confidence: MEDIUM
+  - id: vibesec.logging-authorization-header
+    message: 'Logging req.headers.authorization writes the bearer token (or basic-auth credentials) into your log stream. Strip the value before logging, or log a token fingerprint instead.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: console.log($REQ.headers.authorization)
+          - pattern: console.log($REQ.headers["authorization"])
+          - pattern: $LOGGER.info($REQ.headers.authorization)
+          - pattern: $LOGGER.debug($REQ.headers.authorization)
+    metadata:
+      category: security
+      cwe: CWE-532
+      owasp: A09:2021 Security Logging and Monitoring Failures
+      confidence: HIGH
+  - id: vibesec.print-password-python
+    message: 'print() output usually goes to stdout, which container platforms capture into central logging. Printing a password variable leaks cleartext credentials. Remove the print or redact the value.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: print(f"...{password}...")
+          - pattern: print(f"...{secret}...")
+          - pattern: print(f"...{token}...")
+          - pattern: print(f"...{api_key}...")
+    metadata:
+      category: security
+      cwe: CWE-532
+      owasp: A09:2021 Security Logging and Monitoring Failures
+      confidence: MEDIUM
+  - id: vibesec.empty-except-pass
+    message: 'A bare "except: pass" silently swallows every error, including KeyboardInterrupt and SystemExit. Log the exception with the type and a stack trace so future investigators have something to
+      work with.
+
+      '
+    severity: WARNING
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: "try:\n    ...\nexcept:\n    pass\n"
+          - pattern: "try:\n    ...\nexcept Exception:\n    pass\n"
+    metadata:
+      category: security
+      cwe: CWE-778
+      owasp: A09:2021 Security Logging and Monitoring Failures
+      confidence: MEDIUM
+  - id: vibesec.empty-catch-block-node
+    message: 'An empty catch block discards the error without recording it. At minimum, log err.message and err.stack so the failure is traceable.
+
+      '
+    severity: WARNING
+    languages:
+      - javascript
+      - typescript
+    pattern: 'try { ... } catch ($E) {}
+
+      '
+    metadata:
+      category: security
+      cwe: CWE-778
+      owasp: A09:2021 Security Logging and Monitoring Failures
+      confidence: MEDIUM
+  - id: vibesec.print-debug-leftover
+    message: 'Stray print() calls in production code add noise to logs and may leak data. Convert to a proper logger call with an appropriate level, or remove before shipping.
+
+      '
+    severity: INFO
+    languages:
+      - python
+    pattern: print(...)
+    metadata:
+      category: security
+      cwe: CWE-489
+      owasp: A09:2021 Security Logging and Monitoring Failures
+      confidence: LOW
+  - id: vibesec.ssrf-requests-from-user-url
+    message: 'requests.get() (or any method) with a URL built from request input lets an attacker probe internal services. The classic target is AWS''s 169.254.169.254 metadata endpoint, which returns IAM
+      credentials. Validate the hostname against an allowlist and reject private IP ranges.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: requests.get(request.$_.$URL, ...)
+          - pattern: requests.post(request.$_.$URL, ...)
+          - pattern: requests.put(request.$_.$URL, ...)
+          - pattern: requests.delete(request.$_.$URL, ...)
+          - pattern: requests.patch(request.$_.$URL, ...)
+          - pattern: requests.head(request.$_.$URL, ...)
+          - pattern: requests.request(..., request.$_.$URL, ...)
+    metadata:
+      category: security
+      cwe: CWE-918
+      owasp: A10:2021 Server-Side Request Forgery
+      confidence: MEDIUM
+  - id: vibesec.ssrf-urllib-from-user-url
+    message: 'urllib.request.urlopen() and urllib3.PoolManager.request() with a user-supplied URL are SSRF sinks. Validate the destination hostname before fetching, and consider a hardened client that rejects
+      link-local and private ranges.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: urllib.request.urlopen(request.$_.$URL, ...)
+          - pattern: urllib.request.urlopen(flask.request.$_.$URL, ...)
+    metadata:
+      category: security
+      cwe: CWE-918
+      owasp: A10:2021 Server-Side Request Forgery
+      confidence: MEDIUM
+  - id: vibesec.ssrf-httpx-from-user-url
+    message: 'httpx requests built from user input can be aimed at internal services. Validate against a hostname allowlist or use a session with a custom transport that filters destinations.
+
+      '
+    severity: ERROR
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: httpx.get(request.$_.$URL, ...)
+          - pattern: httpx.post(request.$_.$URL, ...)
+          - pattern: httpx.AsyncClient().get(request.$_.$URL, ...)
+    metadata:
+      category: security
+      cwe: CWE-918
+      owasp: A10:2021 Server-Side Request Forgery
+      confidence: MEDIUM
+  - id: vibesec.ssrf-axios-from-user-url
+    message: 'axios calls with a URL from req.body, req.query, or req.params let attackers route requests through your server. Restrict outbound destinations to a vetted set of hostnames.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: axios.get($REQ.body.$_, ...)
+          - pattern: axios.post($REQ.body.$_, ...)
+          - pattern: axios.put($REQ.body.$_, ...)
+          - pattern: axios.delete($REQ.body.$_, ...)
+          - pattern: axios.get($REQ.query.$_, ...)
+          - pattern: axios.post($REQ.query.$_, ...)
+          - pattern: axios.get($REQ.params.$_, ...)
+          - pattern: axios($REQ.body)
+    metadata:
+      category: security
+      cwe: CWE-918
+      owasp: A10:2021 Server-Side Request Forgery
+      confidence: MEDIUM
+  - id: vibesec.ssrf-fetch-from-user-url
+    message: 'fetch() with a URL from request input is a Node 18+ SSRF sink. Pre-resolve the hostname, reject loopback/link-local/private ranges, and rate-limit outbound traffic per user.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: fetch($REQ.body.$_, ...)
+          - pattern: fetch($REQ.query.$_, ...)
+          - pattern: fetch($REQ.params.$_, ...)
+    metadata:
+      category: security
+      cwe: CWE-918
+      owasp: A10:2021 Server-Side Request Forgery
+      confidence: MEDIUM
+  - id: vibesec.ssrf-http-request-from-user-host
+    message: 'Node''s http.request() and https.request() with a host pulled from user input is an SSRF sink. Validate the host against an allowlist before opening the socket.
+
+      '
+    severity: ERROR
+    languages:
+      - javascript
+      - typescript
+    patterns:
+      - pattern-either:
+          - pattern: 'http.request({ host: $REQ.body.$_, ... }, ...)
+
+              '
+          - pattern: 'http.request({ hostname: $REQ.body.$_, ... }, ...)
+
+              '
+          - pattern: 'https.request({ host: $REQ.body.$_, ... }, ...)
+
+              '
+          - pattern: 'https.request({ hostname: $REQ.body.$_, ... }, ...)
+
+              '
+    metadata:
+      category: security
+      cwe: CWE-918
+      owasp: A10:2021 Server-Side Request Forgery
+      confidence: MEDIUM
+  - id: vibesec.ssrf-image-fetch-thumbnailer
+    message: 'Thumbnailer endpoints that fetch images from arbitrary URLs are classic SSRF entry points. Restrict the fetched URL to known hostnames (e.g. a CDN) or use a hardened image-fetcher service.
+
+      '
+    severity: WARNING
+    languages:
+      - python
+    patterns:
+      - pattern-either:
+          - pattern: 'Image.open(urllib.request.urlopen(request.$_.$URL))
+
+              '
+          - pattern: 'PIL.Image.open(BytesIO(requests.get(request.$_.$URL).content))
+
+              '
+    metadata:
+      category: security
+      cwe: CWE-918
+      owasp: A10:2021 Server-Side Request Forgery
+      confidence: MEDIUM

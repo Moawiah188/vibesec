@@ -12,15 +12,15 @@ import type {
 // Level 1: file cards grouped by source (bundled / custom / external).
 // Level 2: per-file rule table with search + severity filter.
 //
-// Per-rule toggles are intentionally read-only in v1 — the toggle column
-// shows current state but doesn't write back to policy. The Open YAML button
-// lets users edit rules manually until live toggles ship in a later sprint.
+// Per-rule and per-file toggles dispatch to the extension. The extension
+// updates .vibesec.yaml using presets, externalRuleFiles and disabledRules,
+// then reloads the policy so the next scan matches this UI.
 
-const SOURCE_ORDER: readonly RuleSource[] = ["bundled", "custom", "external"];
+const SOURCE_ORDER: readonly RuleSource[] = ["bundled", "custom"];
 const SOURCE_LABEL: Record<RuleSource, string> = {
-  bundled:  "Bundled",
+  bundled:  "Default policies",
   custom:   "Custom policy",
-  external: "External registries",
+  external: "Imported policies",
 };
 
 const SEV_ORDER: readonly Severity[] = ["error", "warning", "info"];
@@ -74,6 +74,12 @@ const IconSearch: React.FC = () => (
     <path d="M21 21l-4.3-4.3" />
   </svg>
 );
+const IconLink: React.FC = () => (
+  <svg {...stroke}>
+    <path d="M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1" />
+    <path d="M14 11a5 5 0 0 0-7.1 0l-2 2a5 5 0 0 0 7.1 7.1l1.1-1.1" />
+  </svg>
+);
 
 // ── Top summary card ─────────────────────────────────────────────────────────
 
@@ -116,17 +122,18 @@ const SOURCE_DOT_COLOR: Record<RuleSource, string> = {
 };
 
 interface FileRowProps {
-  file:    RuleFileEntry;
-  onClick: () => void;
+  file:     RuleFileEntry;
+  onClick:  () => void;
+  onToggle: (enabled: boolean) => void;
+  onDelete: () => void;
 }
 
-const FileRow: React.FC<FileRowProps> = ({ file, onClick }) => {
-  const isExternal = file.source === "external";
+const FileRow: React.FC<FileRowProps> = ({ file, onClick, onToggle, onDelete }) => {
   return (
     <div
       className="rule-file-row"
-      onClick={isExternal ? undefined : onClick}
-      style={{ cursor: isExternal ? "default" : "pointer", opacity: isExternal ? 0.65 : 1 }}
+      onClick={onClick}
+      style={{ cursor: "pointer", opacity: file.enabled ? 1 : 0.62 }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
         <div className="rule-file-icon" style={{ color: SOURCE_DOT_COLOR[file.source] }}>
@@ -179,7 +186,30 @@ const FileRow: React.FC<FileRowProps> = ({ file, onClick }) => {
           </span>
           <span className="mono faint" style={{ fontSize: 10 }}>rules</span>
         </div>
-        {!isExternal && <span style={{ color: "var(--text-faint)", display: "flex" }}><IconChevron /></span>}
+        <button
+          className={`toggle ${file.enabled ? "on" : ""}`}
+          title={file.enabled ? "Deactivate this policy" : "Activate this policy. You can activate multiple normal and taint policies together."}
+          aria-label={file.enabled ? "Deactivate policy" : "Activate policy"}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle(!file.enabled);
+          }}
+          type="button"
+        />
+        {file.source === "custom" && (
+          <button
+            className="btn sm ghost"
+            title="Delete this policy file"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            type="button"
+          >
+            Delete
+          </button>
+        )}
+        <span style={{ color: "var(--text-faint)", display: "flex" }}><IconChevron /></span>
       </div>
     </div>
   );
@@ -188,11 +218,16 @@ const FileRow: React.FC<FileRowProps> = ({ file, onClick }) => {
 // ── File list (level 1) ──────────────────────────────────────────────────────
 
 interface RuleFileListProps {
-  index:    RulesIndex;
-  onSelect: (fileId: string) => void;
+  index:            RulesIndex;
+  onSelect:         (fileId: string) => void;
+  onToggleFile:     (fileId: string, enabled: boolean) => void;
+  onCreateRuleFile: () => void;
+  onCreatePolicyFile: (kind: "normal" | "taint" | "custom") => void;
+  onDeletePolicyFile: (fileId: string) => void;
+  onImportRuleFile: () => void;
 }
 
-const RuleFileList: React.FC<RuleFileListProps> = ({ index, onSelect }) => {
+const RuleFileList: React.FC<RuleFileListProps> = ({ index, onSelect, onToggleFile, onCreateRuleFile, onCreatePolicyFile, onDeletePolicyFile, onImportRuleFile }) => {
   const grouped = useMemo(() =>
     SOURCE_ORDER.map((src) => ({
       src,
@@ -202,24 +237,42 @@ const RuleFileList: React.FC<RuleFileListProps> = ({ index, onSelect }) => {
 
   const totalRules   = index.rules.length;
   const totalEnabled = index.rules.filter((r) => r.enabled).length;
+  const activeFiles  = index.files.filter((f) => f.enabled).length;
   const counts: Record<RuleSource, number> = {
     bundled:  index.files.filter((f) => f.source === "bundled").length,
     custom:   index.files.filter((f) => f.source === "custom").length,
-    external: index.files.filter((f) => f.source === "external").length,
+    external: 0,
   };
 
   return (
     <div className="page">
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 20 }}>
         <SummaryCard
           label="Total rules"
           value={totalRules}
           sub={`${totalEnabled} enabled`}
           emphasis
         />
-        <SummaryCard label="Bundled"  value={counts.bundled}  sub="yaml files" />
-        <SummaryCard label="Custom"   value={counts.custom}   sub="yaml files" />
-        <SummaryCard label="External" value={counts.external} sub="yaml files" />
+        <SummaryCard label="Active files" value={activeFiles} sub="policies" />
+        <SummaryCard label="Custom"  value={counts.custom}  sub="policy files" />
+      </div>
+
+      <div className="row between" style={{ marginBottom: 12 }}>
+        <div className="muted" style={{ fontSize: 12 }}>Turn ON any number of policy files. Normal and taint policies can run together, or all can be OFF.</div>
+        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+          <button className="btn sm" onClick={onImportRuleFile} type="button" title="Import valid YAML from a GitHub or raw URL">
+            <IconLink /> Import policy link
+          </button>
+          <button className="btn sm" onClick={() => onCreatePolicyFile("normal")} type="button">
+            <IconFile /> New normal policy
+          </button>
+          <button className="btn sm" onClick={() => onCreatePolicyFile("taint")} type="button">
+            <IconFile /> New taint policy
+          </button>
+          <button className="btn sm" onClick={() => onCreatePolicyFile("custom")} type="button">
+            <IconFile /> New custom policy
+          </button>
+        </div>
       </div>
 
       <div className="stack" style={{ gap: 20 }}>
@@ -235,7 +288,13 @@ const RuleFileList: React.FC<RuleFileListProps> = ({ index, onSelect }) => {
               </div>
               <div className="stack" style={{ gap: 6 }}>
                 {files.map((f) => (
-                  <FileRow key={f.id} file={f} onClick={() => onSelect(f.id)} />
+                  <FileRow
+                    key={f.id}
+                    file={f}
+                    onClick={() => onSelect(f.id)}
+                    onToggle={(enabled) => onToggleFile(f.id, enabled)}
+                    onDelete={() => onDeletePolicyFile(f.id)}
+                  />
                 ))}
               </div>
             </section>
@@ -254,9 +313,12 @@ interface RuleFileDetailProps {
   onBack:       () => void;
   onOpenFile:   (fileId: string) => void;
   onRefresh:    () => void;
+  onToggleRule: (ruleId: string, enabled: boolean) => void;
+  onToggleFile: (fileId: string, enabled: boolean) => void;
+  onDeleteFile: (fileId: string) => void;
 }
 
-const RuleFileDetail: React.FC<RuleFileDetailProps> = ({ index, fileId, onBack, onOpenFile, onRefresh }) => {
+const RuleFileDetail: React.FC<RuleFileDetailProps> = ({ index, fileId, onBack, onOpenFile, onRefresh, onToggleRule, onToggleFile, onDeleteFile }) => {
   const file = index.files.find((f) => f.id === fileId);
   const fileRules = useMemo(
     () => index.rules.filter((r) => r.file === fileId),
@@ -338,10 +400,22 @@ const RuleFileDetail: React.FC<RuleFileDetailProps> = ({ index, fileId, onBack, 
             </div>
           )}
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button
+            className={`toggle ${file.enabled ? "on" : ""}`}
+            title={file.enabled ? "Deactivate this policy" : "Activate this policy. Multiple policy files can be active together."}
+            aria-label={file.enabled ? "Deactivate policy" : "Activate policy"}
+            onClick={() => onToggleFile(file.id, !file.enabled)}
+            type="button"
+          />
           {file.absPath && (
             <button className="btn sm" onClick={() => onOpenFile(file.id)} type="button">
               <IconExternal /> Open YAML
+            </button>
+          )}
+          {file.source === "custom" && (
+            <button className="btn sm ghost" onClick={() => onDeleteFile(file.id)} type="button" title="Delete this workspace policy file">
+              Delete
             </button>
           )}
           <button className="btn sm ghost" onClick={onRefresh} type="button">
@@ -403,7 +477,7 @@ const RuleFileDetail: React.FC<RuleFileDetailProps> = ({ index, fileId, onBack, 
         )}
 
         {filtered.map((r) => (
-          <RuleRow key={r.id} rule={r} />
+          <RuleRow key={r.id} rule={r} onToggle={(enabled) => onToggleRule(r.id, enabled)} />
         ))}
       </div>
     </div>
@@ -412,7 +486,7 @@ const RuleFileDetail: React.FC<RuleFileDetailProps> = ({ index, fileId, onBack, 
 
 // ── Single rule row ──────────────────────────────────────────────────────────
 
-const RuleRow: React.FC<{ rule: RuleEntry }> = ({ rule }) => {
+const RuleRow: React.FC<{ rule: RuleEntry; onToggle: (enabled: boolean) => void }> = ({ rule, onToggle }) => {
   const confPct = Math.round(rule.conf * 100);
   return (
     <div className="rule-row" style={{ opacity: rule.enabled ? 1 : 0.5 }}>
@@ -455,8 +529,13 @@ const RuleRow: React.FC<{ rule: RuleEntry }> = ({ rule }) => {
         <span className="confidence-bar"><span className="confidence-fill" style={{ width: `${confPct}%` }} /></span>
         <span className="mono faint" style={{ fontSize: 10.5 }}>{confPct}</span>
       </span>
-      {/* Read-only toggle in v1 — visual only, doesn't dispatch a change. */}
-      <div className={`toggle ${rule.enabled ? "on" : ""}`} aria-disabled />
+      <button
+        className={`toggle ${rule.enabled ? "on" : ""}`}
+        title={rule.enabled ? "Disable this rule" : "Enable this rule"}
+        aria-label={rule.enabled ? "Disable this rule" : "Enable this rule"}
+        onClick={() => onToggle(!rule.enabled)}
+        type="button"
+      />
     </div>
   );
 };
@@ -464,12 +543,18 @@ const RuleRow: React.FC<{ rule: RuleEntry }> = ({ rule }) => {
 // ── Public page ──────────────────────────────────────────────────────────────
 
 interface RulesProps {
-  index:      RulesIndex;
-  onOpenFile: (fileId: string) => void;
-  onRefresh:  () => void;
+  index:            RulesIndex;
+  onOpenFile:       (fileId: string) => void;
+  onRefresh:        () => void;
+  onToggleRule:     (ruleId: string, enabled: boolean) => void;
+  onToggleFile:     (fileId: string, enabled: boolean) => void;
+  onCreateRuleFile: () => void;
+  onCreatePolicyFile: (kind: "normal" | "taint" | "custom") => void;
+  onDeletePolicyFile: (fileId: string) => void;
+  onImportRuleFile: () => void;
 }
 
-export const Rules: React.FC<RulesProps> = ({ index, onOpenFile, onRefresh }) => {
+export const Rules: React.FC<RulesProps> = ({ index, onOpenFile, onRefresh, onToggleRule, onToggleFile, onCreateRuleFile, onCreatePolicyFile, onDeletePolicyFile, onImportRuleFile }) => {
   const [selected, setSelected] = useState<string | null>(null);
 
   if (selected) {
@@ -480,8 +565,21 @@ export const Rules: React.FC<RulesProps> = ({ index, onOpenFile, onRefresh }) =>
         onBack={() => setSelected(null)}
         onOpenFile={onOpenFile}
         onRefresh={onRefresh}
+        onToggleRule={onToggleRule}
+        onToggleFile={onToggleFile}
+        onDeleteFile={onDeletePolicyFile}
       />
     );
   }
-  return <RuleFileList index={index} onSelect={setSelected} />;
+  return (
+    <RuleFileList
+      index={index}
+      onSelect={setSelected}
+      onToggleFile={onToggleFile}
+      onCreateRuleFile={onCreateRuleFile}
+      onCreatePolicyFile={onCreatePolicyFile}
+      onDeletePolicyFile={onDeletePolicyFile}
+      onImportRuleFile={onImportRuleFile}
+    />
+  );
 };

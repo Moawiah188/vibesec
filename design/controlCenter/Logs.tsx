@@ -37,6 +37,13 @@ const IconTrash: React.FC = () => (
     <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
   </svg>
 );
+const IconLatest: React.FC = () => (
+  <svg {...stroke}>
+    <path d="M12 5v14" />
+    <path d="M18 13l-6 6-6-6" />
+    <path d="M5 5h14" />
+  </svg>
+);
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -124,6 +131,12 @@ export const Logs: React.FC<LogsProps> = ({ logs, onClear, onCopyAll }) => {
     onCopyAll(text);
   };
 
+  const rowId = (l: LogEvent, i: number): string => `${l.t}-${l.type}-${l.level}-${i}`;
+  const openLatest = (): void => {
+    if (filtered.length === 0) { return; }
+    setExpanded(rowId(filtered[0], 0));
+  };
+
   return (
     <div className="page">
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>
@@ -161,6 +174,9 @@ export const Logs: React.FC<LogsProps> = ({ logs, onClear, onCopyAll }) => {
         <span className="mono faint" style={{ fontSize: 11 }}>
           {filtered.length} of {logs.length}
         </span>
+        <button className="btn sm ghost" onClick={openLatest} type="button" disabled={filtered.length === 0}>
+          <IconLatest /> Latest
+        </button>
         <button className="btn sm ghost" onClick={copyAll} type="button" disabled={filtered.length === 0}>
           <IconCopy /> Copy
         </button>
@@ -169,7 +185,7 @@ export const Logs: React.FC<LogsProps> = ({ logs, onClear, onCopyAll }) => {
         </button>
       </div>
 
-      <div className="card" style={{ overflow: "hidden" }}>
+      <div className="card logs-card">
         <div className="logs-header">
           <span>Time</span><span>Type</span><span>Level</span><span>Message</span>
         </div>
@@ -181,7 +197,7 @@ export const Logs: React.FC<LogsProps> = ({ logs, onClear, onCopyAll }) => {
         )}
 
         {filtered.map((l, i) => {
-          const id = `${l.t}-${i}`;
+          const id = rowId(l, i);
           const isExpanded = expanded === id;
           const lc = levelColor(l.level);
           return (
@@ -202,8 +218,8 @@ export const Logs: React.FC<LogsProps> = ({ logs, onClear, onCopyAll }) => {
                 {l.level}
               </span>
               <span className="log-msg">{l.msg}</span>
-              {isExpanded && l.detail && (
-                <div className="log-detail mono">{l.detail}</div>
+              {isExpanded && (
+                <div className="log-detail mono">{l.detail || l.msg}</div>
               )}
             </div>
           );

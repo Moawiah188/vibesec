@@ -25,7 +25,14 @@ export const VulnCard: React.FC<Props> = ({
   onJumpToLocation,
 }) => {
   return (
-    <div className={`vs-vuln sev-${v.severity} ${expanded ? "is-expanded" : ""}`}>
+    <div
+      className={`vs-vuln sev-${v.severity} ${expanded ? "is-expanded" : ""}`}
+      title="Double-click to open this finding in the source file"
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        onOpenSource(v);
+      }}
+    >
       <div className="vs-vuln-head" onClick={onToggle}>
         <div className={`vs-vuln-sev sev-${v.severity}`} />
         <div className="vs-vuln-body">

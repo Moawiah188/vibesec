@@ -1,0 +1,36 @@
+# VibeSec normal scan policy
+# Purpose: standard pattern-based scanning.
+# Activate this file from Control Center → Rules.
+# This file starts empty. Turn ON rules/default.yaml separately if you want the bundled default rules.
+
+activePolicyKind: normal
+presets: []
+
+severity:
+  minSeverity: warning
+
+files:
+  exclude:
+    - "**/node_modules/**"
+    - "**/dist/**"
+    - "**/build/**"
+    - "**/*.test.*"
+
+# Rules turned OFF from Control Center can be tracked here.
+disabledRules: []
+
+# Optional custom normal Semgrep rules.
+# Keep rules empty unless you want to add project-specific checks.
+rules: []
+
+# Example normal rule structure:
+# rules:
+#   - id: custom.javascript.eval
+#     message: Avoid eval() because it can execute untrusted code.
+#     severity: WARNING
+#     languages: [javascript, typescript]
+#     pattern: eval(...)
+#     metadata:
+#       category: security
+#       cwe: "CWE-95"
+#       confidence: MEDIUM

@@ -2,11 +2,13 @@
   "name": "vibesec",
   "displayName": "VibeSec",
   "description": "AI-assisted security scanner for vibe coders",
-  "version": "0.7.0",
+  "version": "0.8.6",
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Linters"],
+  "categories": [
+    "Linters"
+  ],
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
@@ -205,7 +207,7 @@
         "vibesec.autoScanOnSave": {
           "type": "boolean",
           "default": false,
-          "description": "Automatically scan on file save. Off by default — enable only if you want continuous feedback.",
+          "description": "Automatically scan on file save. Off by default \u2014 enable only if you want continuous feedback.",
           "scope": "resource"
         },
         "vibesec.showInlineDecorations": {
@@ -222,11 +224,19 @@
         },
         "vibesec.llmProvider": {
           "type": "string",
-          "enum": ["openai", "anthropic", "gemini"],
+          "enum": [
+            "openai",
+            "anthropic",
+            "gemini",
+            "groq",
+            "custom"
+          ],
           "enumDescriptions": [
             "OpenAI (GPT models). Requires an OpenAI API key.",
             "Anthropic (Claude models). Requires an Anthropic API key.",
-            "Google Gemini. Requires a Google AI Studio API key."
+            "Google Gemini. Requires a Google AI Studio API key.",
+            "Groq. Paste a Groq gsk_ API key; VibeSec fills the Groq endpoint and default model automatically.",
+            "Custom/OpenAI-compatible provider. Requires an API key, model name, and chat completions endpoint."
           ],
           "default": "anthropic",
           "description": "Which AI provider to use when generating fix prompts. Set the matching API key via the command \"VibeSec: Set API Key\".",
@@ -235,25 +245,41 @@
         "vibesec.llmModel": {
           "type": "string",
           "default": "claude-haiku-4-5",
-          "description": "The model id used for prompt generation. Defaults to the cheapest tier for the chosen provider (gpt-5-nano / claude-haiku-4-5 / gemini-2.5-flash-lite). When you switch providers, leave this blank to auto-pick the right default for that provider.",
+          "description": "Exact model id used for prompt generation. You can write any supported model name for the selected provider, including custom provider model ids.",
           "scope": "resource"
         },
         "vibesec.openPanelOnScan": {
           "type": "boolean",
           "default": false,
-          "description": "Open the Analysis Panel automatically whenever a scan starts. Off by default — toggle on if you want the panel to take over the editor area on every scan.",
+          "description": "Open the Analysis Panel automatically whenever a scan starts. Off by default \u2014 toggle on if you want the panel to take over the editor area on every scan.",
           "scope": "resource"
         },
         "vibesec.promptMode": {
           "type": "string",
-          "enum": ["perFile", "perVulnerability", "perProject"],
+          "enum": [
+            "perFile",
+            "perVulnerability",
+            "perProject"
+          ],
           "enumDescriptions": [
-            "One prompt per file, batching every finding in that file. Cheapest meaningful option — recommended.",
+            "One prompt per file, batching every finding in that file. Cheapest meaningful option \u2014 recommended.",
             "One prompt per finding, plus rolled-up per-file and project-level prompts. Most thorough, most expensive.",
             "A single prompt covering every finding in the scan. Cheapest possible (one API call) but the AI gets a large context."
           ],
           "default": "perFile",
           "description": "How VibeSec should slice prompts when you click \"Generate Prompts\". You can change this any time without re-scanning.",
+          "scope": "resource"
+        },
+        "vibesec.llmCustomProviderName": {
+          "type": "string",
+          "default": "",
+          "description": "Optional display name for a custom/OpenAI-compatible LLM provider, such as OpenRouter, Groq, Together, or a local gateway.",
+          "scope": "resource"
+        },
+        "vibesec.llmCustomBaseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Full OpenAI-compatible chat completions endpoint for the custom provider, for example https://api.example.com/v1/chat/completions.",
           "scope": "resource"
         }
       }
@@ -268,28 +294,40 @@
             "id": "vibesec.step.install",
             "title": "Install Semgrep",
             "description": "VibeSec uses Semgrep under the hood. Install it once and you're set.\n\n```\npip install semgrep\n```\n\n[Open Terminal](command:workbench.action.terminal.new)",
-            "media": { "markdown": "media/walkthrough/install.md" },
+            "media": {
+              "markdown": "media/walkthrough/install.md"
+            },
             "completionEvents": []
           },
           {
             "id": "vibesec.step.scan",
             "title": "Run your first scan",
-            "description": "Open any file and run a scan — findings appear in the VibeSec panel on the left.\n\n[$(play) Scan Current File](command:vibesec.scanCurrentFile)",
-            "media": { "markdown": "media/walkthrough/scan.md" },
-            "completionEvents": ["onCommand:vibesec.scanCurrentFile"]
+            "description": "Open any file and run a scan \u2014 findings appear in the VibeSec panel on the left.\n\n[$(play) Scan Current File](command:vibesec.scanCurrentFile)",
+            "media": {
+              "markdown": "media/walkthrough/scan.md"
+            },
+            "completionEvents": [
+              "onCommand:vibesec.scanCurrentFile"
+            ]
           },
           {
             "id": "vibesec.step.policy",
             "title": "Customize with a policy file",
             "description": "Drop a .vibesec.yaml in your project to control which rules run.\n\n[$(gear) Create Policy File](command:vibesec.openPolicyFile)",
-            "media": { "markdown": "media/walkthrough/policy.md" },
-            "completionEvents": ["onCommand:vibesec.openPolicyFile"]
+            "media": {
+              "markdown": "media/walkthrough/policy.md"
+            },
+            "completionEvents": [
+              "onCommand:vibesec.openPolicyFile"
+            ]
           },
           {
             "id": "vibesec.step.prompts",
             "title": "Hook up an AI provider for fix prompts",
             "description": "Add an API key (OpenAI, Anthropic, or Gemini) and VibeSec can generate copy-paste fix prompts for every finding.\n\n[$(key) Set API Key](command:vibesec.setApiKey)",
-            "completionEvents": ["onCommand:vibesec.setApiKey"]
+            "completionEvents": [
+              "onCommand:vibesec.setApiKey"
+            ]
           }
         ]
       }

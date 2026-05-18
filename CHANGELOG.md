@@ -4,6 +4,115 @@ All notable changes to VibeSec are documented here.
 
 ---
 
+## [0.8.6] — Multi-Policy Activation Fix
+
+### Overview
+Replaces the one-normal + one-taint active policy selector with `activePolicyFiles`, allowing any number of policy files to be active simultaneously. Fixes a fallback bug where an empty active policy silently ran the default ruleset.
+
+---
+
+### Changed
+- Replaced `activeNormalPolicyFile` / `activeTaintPolicyFile` fields in the workspace selector with a unified `activePolicyFiles` list — any combination of normal and taint policies can be active at once.
+- All policy files can now be turned OFF. When zero policies are active, scans return zero findings instead of silently falling back to `rules/default.yaml`.
+- Fixed the fallback bug where an empty active policy caused the default rules to run unintentionally.
+- New normal/taint policy templates now start empty (`presets: []`) so a zero-rule policy truly scans with zero rules.
+
+### Added
+- **Delete** buttons on the Rules list and detail page for custom policy files.
+- Deleting an active custom policy removes it from `activePolicyFiles` rather than falling back to default rules.
+
+### Workspace selector shape
+
+```yaml
+activePolicyFiles:
+  - rules/default.yaml
+  - rules/taint.yaml
+  - rules/policies/custom-extra.yaml
+presets:
+  - vibesec:default
+  - vibesec:taint
+severity:
+  minSeverity: warning
+disabledRules: []
+```
+
+`presets` is retained only as a mirror for bundled default/taint compatibility. The real source of truth is `activePolicyFiles`.
+
+---
+
+## [0.8.5] — Dual Active Policy Slots
+
+### Overview
+Changes the policy activation model so VibeSec can keep one normal policy and one taint policy active simultaneously, and both run together in the same scan.
+
+---
+
+### Changed
+- The Rules page now supports two active slots: one for normal/default policies and one for taint policies.
+- Activating a normal policy replaces only the previous active normal policy; activating a taint policy replaces only the previous active taint policy.
+- Normal and taint policies now run together in the same scan.
+- The scanner merges the active normal policy and active taint policy before invoking Semgrep; disabled rules and file exclusions are combined from both selected policy files and the workspace selector file.
+
+### Workspace selector additions
+The workspace `.vibesec.yaml` now accepts dedicated active-policy fields:
+
+```yaml
+activeNormalPolicyFile: rules/default.yaml
+activeTaintPolicyFile: rules/taint.yaml
+presets:
+  - vibesec:default
+  - vibesec:taint
+```
+
+Custom policies stored inside the extension can also be selected:
+
+```yaml
+activeNormalPolicyFile: rules/policies/normal-my-policy.yaml
+activeTaintPolicyFile: rules/policies/taint-my-policy.yaml
+```
+
+### Backward compatibility
+- Older `.vibesec.yaml` files that use only `presets:` continue to work unchanged.
+- Older files that use `activePolicyFile:` (singular) load correctly and are migrated by the Rules page when a new policy is activated.
+
+---
+
+## [0.8.4] — Groq Provider
+
+### Overview
+Adds Groq as a first-class AI provider with automatic key detection and a pre-configured OpenAI-compatible endpoint.
+
+---
+
+### Added
+- **Groq** AI provider — paste a `gsk_` API key and VibeSec automatically saves it as Groq, selects Groq, and sets the default model to `llama-3.1-8b-instant`.
+- VibeSec uses the Groq OpenAI-compatible endpoint automatically: `https://api.groq.com/openai/v1/chat/completions`.
+- If a `gsk_` key is pasted into any API key field, VibeSec auto-routes it to the Groq provider.
+- Custom / Other provider remains available for OpenAI-compatible providers that require a custom endpoint.
+
+---
+
+## [0.8.3] — Custom / Other LLM Fix
+
+### Overview
+Fixes the Custom / Other LLM API key flow and makes provider/model selection safer across all providers.
+
+---
+
+### Fixed
+- Saving an API key now also selects that provider as the active provider.
+- The Settings page button label changed to **Save & use** to make the behavior explicit.
+- Built-in provider defaults corrected: Anthropic → `claude-haiku-4-5`, OpenAI → `gpt-5-nano`, Gemini → `gemini-2.5-flash-lite`.
+- Testing a provider now reads the model field correctly and falls back to provider defaults for built-in providers.
+- Removed the duplicated Custom / Other API key row.
+- Custom / Other API key is stored separately in VS Code SecretStorage.
+- Custom / Other now requires an exact model name instead of inheriting a built-in provider model.
+- Custom endpoints accept either a full chat-completions URL (e.g. `https://openrouter.ai/api/v1/chat/completions`) or a base `/v1` URL (e.g. `https://api.groq.com/openai/v1`); VibeSec appends `/chat/completions` automatically.
+- Added optional OpenRouter-friendly headers.
+- Improved response parsing for OpenAI-compatible providers.
+
+---
+
 ## [0.7.0] — Sprint 7 "Taint"
 
 ### Overview

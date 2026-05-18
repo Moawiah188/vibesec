@@ -9,9 +9,14 @@ export type ControlCenterQuickAction =
   | "scan"
   | "openPanel"
   | "openPolicy"
-  | "reloadPolicy";
+  | "reloadPolicy"
+  | "openFolder"
+  | "openFile"
+  | "newFile"
+  | "newNormalPolicy"
+  | "newTaintPolicy";
 
-export type LlmProvider = "openai" | "anthropic" | "gemini";
+export type LlmProvider = "openai" | "anthropic" | "gemini" | "groq" | "custom";
 export type PromptMode = "perFile" | "perVulnerability" | "perProject";
 
 export interface SettingsValues {
@@ -22,6 +27,8 @@ export interface SettingsValues {
   openPanelOnScan:       boolean;
   llmProvider:           LlmProvider;
   llmModel:              string;
+  llmCustomProviderName: string;
+  llmCustomBaseUrl:      string;
   promptMode:            PromptMode;
 }
 
@@ -88,6 +95,7 @@ export interface RuleFileEntry {
   updatedAt:    string | null;
   ruleCount:    number;
   severities:   { error: number; warning: number; info: number };
+  enabled:      boolean;
   parseError?:  string;
 }
 
@@ -119,9 +127,18 @@ export type CcWebviewToExtension =
   | { type: "ready" }
   | { type: "runQuickAction"; action: ControlCenterQuickAction }
   | { type: "setSetting"; key: SettingsKey; value: SettingsValues[SettingsKey] }
+  | { type: "saveApiKey"; provider: LlmProvider; key: string }
+  | { type: "clearApiKey"; provider: LlmProvider }
+  | { type: "testApiKey"; provider: LlmProvider }
   | { type: "openSettingsJson" }
   | { type: "resetSettingsToDefaults" }
   | { type: "clearScanHistory" }
   | { type: "clearLogs" }
   | { type: "refreshRules" }
-  | { type: "openRuleFile"; fileId: string };
+  | { type: "openRuleFile"; fileId: string }
+  | { type: "createCustomRuleFile" }
+  | { type: "createPolicyFile"; kind: "normal" | "taint" | "custom" }
+  | { type: "deletePolicyFile"; fileId: string }
+  | { type: "setRuleFileEnabled"; fileId: string; enabled: boolean }
+  | { type: "setRuleEnabled"; ruleId: string; enabled: boolean }
+  | { type: "importRuleFileFromUrl" }; // ruleId is scoped as "<fileId>::<ruleId>" from the UI

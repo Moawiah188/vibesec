@@ -147,6 +147,9 @@ export type ExtensionToWebview =
 export type WebviewToExtension =
   | { type: "ready" }
   | { type: "getWorkspaceTree" }
+  | { type: "openFolder" }
+  | { type: "newFile" }
+  | { type: "openControlCenter" }
   | { type: "scanRequested"; filePaths: string[] }
   | { type: "scanCancel" }
   | { type: "goToFinding"; findingId: string }

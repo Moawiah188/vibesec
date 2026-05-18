@@ -8,6 +8,8 @@ import {
   Lightning,
   Plus,
   Refresh,
+  Folder,
+  Settings,
   Shield,
   ShieldCheck,
   Wand,
@@ -213,6 +215,20 @@ export const AnalysisPanel: React.FC<Props> = ({
               onClick={() => postMessage({ type: "getWorkspaceTree" })}
             >
               <Refresh size={13} />
+            </button>
+            <button
+              className="vs-btn-icon"
+              title="Open folder"
+              onClick={() => postMessage({ type: "openFolder" })}
+            >
+              <Folder size={13} />
+            </button>
+            <button
+              className="vs-btn-icon"
+              title="Open Control Center"
+              onClick={() => postMessage({ type: "openControlCenter" })}
+            >
+              <Settings size={13} />
             </button>
             <button
               className="vs-btn-icon"

@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { ALL_PROVIDERS, PROVIDER_LABEL } from "./llmModels";
 import { LlmProvider } from "./types";
 
 // ── Secret storage wrapper (Sprint 4) ────────────────────────────────────────
@@ -14,13 +15,7 @@ function storageKey(provider: LlmProvider): string {
   return `${KEY_PREFIX}.${provider}`;
 }
 
-export const PROVIDER_LABEL: Record<LlmProvider, string> = {
-  openai:    "OpenAI",
-  anthropic: "Anthropic",
-  gemini:    "Gemini",
-};
-
-export const ALL_PROVIDERS: LlmProvider[] = ["openai", "anthropic", "gemini"];
+export { ALL_PROVIDERS, PROVIDER_LABEL };
 
 export async function getApiKey(
   context: vscode.ExtensionContext,

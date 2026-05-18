@@ -314,6 +314,9 @@ const App: React.FC = () => {
                     onSet={setSetting}
                     onOpenJson={() => postMessage({ type: "openSettingsJson" })}
                     onResetDefaults={() => postMessage({ type: "resetSettingsToDefaults" })}
+                    onSaveApiKey={(provider, key) => postMessage({ type: "saveApiKey", provider, key })}
+                    onClearApiKey={(provider) => postMessage({ type: "clearApiKey", provider })}
+                    onTestApiKey={(provider) => postMessage({ type: "testApiKey", provider })}
                   />
                 )
                 : <div className="placeholder"><div><strong>Settings</strong>Loading…</div></div>
@@ -330,6 +333,12 @@ const App: React.FC = () => {
                 index={rules}
                 onOpenFile={(fileId) => postMessage({ type: "openRuleFile", fileId })}
                 onRefresh={() => postMessage({ type: "refreshRules" })}
+                onToggleRule={(ruleId, enabled) => postMessage({ type: "setRuleEnabled", ruleId, enabled })}
+                onToggleFile={(fileId, enabled) => postMessage({ type: "setRuleFileEnabled", fileId, enabled })}
+                onCreateRuleFile={() => postMessage({ type: "createCustomRuleFile" })}
+                onCreatePolicyFile={(kind) => postMessage({ type: "createPolicyFile", kind })}
+                onDeletePolicyFile={(fileId) => postMessage({ type: "deletePolicyFile", fileId })}
+                onImportRuleFile={() => postMessage({ type: "importRuleFileFromUrl" })}
               />
             )}
           </div>

@@ -4,7 +4,13 @@ import type {
   SettingsKey,
   SettingsState,
   SettingsValues,
+  LlmProvider,
 } from "./types";
+import {
+  PROVIDER_DEFAULT_MODEL,
+  PROVIDER_LABEL,
+  providerModelPresets,
+} from "./llmModels";
 
 // Group + control descriptors for the Settings page UI. The keys must match
 // SettingsValues; types map to control variants. Mirrors the design's
@@ -68,21 +74,9 @@ const SETTINGS_DEFS: SettingGroup[] = [
     items: [
       {
         type: "bool",
-        key: "autoScanOnSave",
-        label: "Auto-scan on save",
-        help: "Re-scan the active file each time it is saved.",
-      },
-      {
-        type: "bool",
         key: "showInlineDecorations",
         label: "Show inline squiggles",
         help: "Underline findings directly in the editor.",
-      },
-      {
-        type: "bool",
-        key: "openPanelOnScan",
-        label: "Open analysis panel on scan",
-        help: "Reveal the VibeSec analysis panel automatically when a scan starts.",
       },
     ],
   },
@@ -93,15 +87,36 @@ const SETTINGS_DEFS: SettingGroup[] = [
         type: "enum",
         key: "llmProvider",
         label: "AI provider",
-        help: "Provider used to draft remediation prompts.",
-        options: ["anthropic", "openai", "gemini"] as const,
-      } satisfies EnumDef<"anthropic" | "openai" | "gemini">,
+        help: "Provider used to draft remediation prompts. Choose Custom / Other for any OpenAI-compatible LLM endpoint.",
+        options: ["anthropic", "openai", "gemini", "groq", "custom"] as const,
+        optionLabels: {
+          anthropic: "Anthropic",
+          openai: "OpenAI",
+          gemini: "Gemini",
+          groq: "Groq",
+          custom: "Custom / Other",
+        },
+      } satisfies EnumDef<"anthropic" | "openai" | "gemini" | "groq" | "custom">,
       {
         type: "string",
         key: "llmModel",
-        label: "AI model",
-        help: "Model identifier passed to the provider. Leave matching the provider's default if unsure.",
-        placeholder: "claude-haiku-4-5",
+        label: "AI model name",
+        help: "Write the exact model name you want to use, for example gpt-5-nano, claude-haiku-4-5, gemini-2.5-flash-lite, llama-3.1-8b-instant, or a custom model id.",
+        placeholder: "write model name here",
+      },
+      {
+        type: "string",
+        key: "llmCustomProviderName",
+        label: "Custom LLM name",
+        help: "Optional display name for your own LLM provider, such as Groq, OpenRouter, Together, Local LLM, or Company AI.",
+        placeholder: "OpenRouter / Groq / Local LLM",
+      },
+      {
+        type: "string",
+        key: "llmCustomBaseUrl",
+        label: "Custom LLM API endpoint",
+        help: "Full OpenAI-compatible chat completions URL, for example https://api.example.com/v1/chat/completions.",
+        placeholder: "https://api.example.com/v1/chat/completions",
       },
       {
         type: "enum",
@@ -153,6 +168,63 @@ const StringField: React.FC<StringFieldProps> = ({ value, placeholder, onCommit 
         else if (e.key === "Escape") { setDraft(value); (e.target as HTMLInputElement).blur(); }
       }}
     />
+  );
+};
+
+interface ModelFieldProps {
+  provider: LlmProvider;
+  value: string;
+  onCommit: (next: string) => void;
+}
+
+const ModelField: React.FC<ModelFieldProps> = ({ provider, value, onCommit }) => {
+  const presets = providerModelPresets(provider);
+  const isPreset = presets.includes(value);
+  const [forceCustom, setForceCustom] = useState(false);
+
+  useEffect(() => { setForceCustom(false); }, [provider, value]);
+
+  if (provider === "custom" || presets.length === 0) {
+    return (
+      <StringField
+        value={value}
+        placeholder="exact model id from your provider"
+        onCommit={onCommit}
+      />
+    );
+  }
+
+  const customMode = forceCustom || !isPreset;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
+      <select
+        className="input"
+        value={customMode ? "__custom__" : value}
+        onChange={(e) => {
+          const next = e.target.value;
+          if (next === "__custom__") {
+            setForceCustom(true);
+            return;
+          }
+          setForceCustom(false);
+          onCommit(next);
+        }}
+      >
+        {presets.map((model) => (
+          <option key={model} value={model}>
+            {model === PROVIDER_DEFAULT_MODEL[provider] ? `${model} (default)` : model}
+          </option>
+        ))}
+        <option value="__custom__">Custom exact model id...</option>
+      </select>
+      {customMode && (
+        <StringField
+          value={value}
+          placeholder={`${PROVIDER_LABEL[provider]} model id`}
+          onCommit={onCommit}
+        />
+      )}
+    </div>
   );
 };
 
@@ -234,11 +306,21 @@ const SettingsRow: React.FC<SettingsRowProps> = ({ def, values, defaults, onSet 
           />
         )}
         {def.type === "string" && (
-          <StringField
-            value={values[def.key] as string}
-            placeholder={def.placeholder}
-            onCommit={(v) => onSet(def.key, v as SettingsValues[typeof def.key])}
-          />
+          def.key === "llmModel"
+            ? (
+              <ModelField
+                provider={values.llmProvider}
+                value={values.llmModel}
+                onCommit={(v) => onSet("llmModel", v)}
+              />
+            )
+            : (
+              <StringField
+                value={values[def.key] as string}
+                placeholder={def.placeholder}
+                onCommit={(v) => onSet(def.key, v as SettingsValues[typeof def.key])}
+              />
+            )
         )}
         {def.type === "enum" && (
           <Segmented
@@ -253,6 +335,96 @@ const SettingsRow: React.FC<SettingsRowProps> = ({ def, values, defaults, onSet 
   );
 };
 
+
+const PROVIDERS: { id: LlmProvider; label: string; hint: string }[] = [
+  { id: "anthropic", label: PROVIDER_LABEL.anthropic, hint: "Claude API key" },
+  { id: "openai",    label: PROVIDER_LABEL.openai,    hint: "OpenAI API key" },
+  { id: "gemini",    label: PROVIDER_LABEL.gemini,    hint: "Google AI Studio API key" },
+  { id: "groq",      label: PROVIDER_LABEL.groq,      hint: "Groq API key. Paste your gsk_ key only; VibeSec uses the Groq endpoint automatically" },
+  { id: "custom",    label: PROVIDER_LABEL.custom,    hint: "API key for another OpenAI-compatible LLM provider" },
+];
+
+interface ApiKeyManagerProps {
+  activeProvider: LlmProvider;
+  onSave:  (provider: LlmProvider, key: string) => void;
+  onClear: (provider: LlmProvider) => void;
+  onTest:  (provider: LlmProvider) => void;
+}
+
+const ApiKeyManager: React.FC<ApiKeyManagerProps> = ({ activeProvider, onSave, onClear, onTest }) => {
+  const [drafts, setDrafts] = useState<Record<LlmProvider, string>>({
+    anthropic: "",
+    openai: "",
+    gemini: "",
+    groq: "",
+    custom: "",
+  });
+
+  const setDraft = (provider: LlmProvider, value: string): void => {
+    setDrafts((prev) => ({ ...prev, [provider]: value }));
+  };
+
+  const save = (provider: LlmProvider): void => {
+    const key = drafts[provider].trim();
+    if (!key) { return; }
+    onSave(provider, key);
+    setDraft(provider, "");
+  };
+
+  return (
+    <section>
+      <div className="row between" style={{ marginBottom: 10 }}>
+        <h3 className="section-title" style={{ margin: 0 }}>API keys</h3>
+        <span className="mono faint" style={{ fontSize: 10.5 }}>stored securely</span>
+      </div>
+      <div className="card">
+        <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--border-soft)" }}>
+          <div className="help" style={{ margin: 0 }}>
+            Save a separate API key for each provider. Keys are stored in VS Code SecretStorage, not in settings.json.
+            The active provider is <strong>{activeProvider}</strong>. Saving a key also selects that provider. For Groq, paste only the <strong>gsk_</strong> API key and VibeSec will use the Groq endpoint automatically. For Custom / Other, write the exact model name and API endpoint above, then click Test.
+          </div>
+        </div>
+        {PROVIDERS.map((provider) => (
+          <div className="settings-row" key={provider.id}>
+            <div>
+              <div className="label-line">
+                <span className="name">{provider.label} API key</span>
+                {provider.id === activeProvider && <span className="key">active provider</span>}
+              </div>
+              <div className="help">{provider.hint}. Paste the key, press Save, then use Test to verify it.</div>
+              <div className="default">value: <strong>hidden for security</strong></div>
+            </div>
+            <div className="control" style={{ flexDirection: "column", alignItems: "stretch", gap: 8 }}>
+              <input
+                className="input"
+                type="password"
+                value={drafts[provider.id]}
+                placeholder={`Paste ${provider.label} key`}
+                onChange={(e) => setDraft(provider.id, e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { save(provider.id); }
+                  else if (e.key === "Escape") { setDraft(provider.id, ""); }
+                }}
+              />
+              <div className="row" style={{ gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                <button className="btn sm primary" type="button" disabled={!drafts[provider.id].trim()} onClick={() => save(provider.id)}>
+                  Save & use
+                </button>
+                <button className="btn sm" type="button" onClick={() => onTest(provider.id)}>
+                  Test
+                </button>
+                <button className="btn sm ghost" type="button" onClick={() => onClear(provider.id)}>
+                  Clear
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+};
+
 function formatDefault(v: unknown): string {
   if (typeof v === "boolean") { return v ? "true" : "false"; }
   if (typeof v === "string" && v === "") { return "(empty)"; }
@@ -264,6 +436,9 @@ interface SettingsProps {
   onSet:           <K extends SettingsKey>(key: K, value: SettingsValues[K]) => void;
   onOpenJson:      () => void;
   onResetDefaults: () => void;
+  onSaveApiKey:    (provider: LlmProvider, key: string) => void;
+  onClearApiKey:   (provider: LlmProvider) => void;
+  onTestApiKey:    (provider: LlmProvider) => void;
 }
 
 export const Settings: React.FC<SettingsProps> = ({
@@ -271,6 +446,9 @@ export const Settings: React.FC<SettingsProps> = ({
   onSet,
   onOpenJson,
   onResetDefaults,
+  onSaveApiKey,
+  onClearApiKey,
+  onTestApiKey,
 }) => (
   <div className="page" style={{ maxWidth: 760 }}>
     <div className="stack" style={{ gap: 22 }}>
@@ -295,6 +473,13 @@ export const Settings: React.FC<SettingsProps> = ({
           </div>
         </section>
       ))}
+
+      <ApiKeyManager
+        activeProvider={state.values.llmProvider}
+        onSave={onSaveApiKey}
+        onClear={onClearApiKey}
+        onTest={onTestApiKey}
+      />
 
       <div className="row" style={{ gap: 8, marginTop: 4 }}>
         <button className="btn" onClick={onOpenJson} type="button">

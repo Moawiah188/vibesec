@@ -14,10 +14,15 @@ import type { ThemeKind } from "./panelMessages";
 export type ControlCenterPage = "dashboard" | "settings" | "logs" | "rules";
 
 export type ControlCenterQuickAction =
-  | "scan"            // run vibesec.scanWorkspace
-  | "openPanel"       // focus the Analysis sidebar view
-  | "openPolicy"      // run vibesec.openPolicyFile
-  | "reloadPolicy";   // run vibesec.reloadPolicy
+  | "scan"              // run vibesec.scanWorkspace
+  | "openPanel"         // focus the Analysis sidebar view
+  | "openPolicy"        // run vibesec.openPolicyFile
+  | "reloadPolicy"      // run vibesec.reloadPolicy
+  | "openFolder"        // choose and open a folder
+  | "openFile"          // choose and open a file
+  | "newFile"           // create a new source file
+  | "newNormalPolicy"   // create/replace .vibesec.yaml with default scanning policy
+  | "newTaintPolicy";   // create/replace .vibesec.yaml with taint scanning policy
 
 // ── Settings ─────────────────────────────────────────────────────────────────
 //
@@ -33,6 +38,8 @@ export interface SettingsValues {
   openPanelOnScan:       boolean;
   llmProvider:           LlmProvider;
   llmModel:              string;
+  llmCustomProviderName: string;
+  llmCustomBaseUrl:      string;
   promptMode:            PromptMode;
 }
 
@@ -79,9 +86,18 @@ export type CcWebviewToExtension =
   | { type: "ready" }
   | { type: "runQuickAction"; action: ControlCenterQuickAction }
   | { type: "setSetting"; key: SettingsKey; value: SettingsValues[SettingsKey] }
+  | { type: "saveApiKey"; provider: LlmProvider; key: string }
+  | { type: "clearApiKey"; provider: LlmProvider }
+  | { type: "testApiKey"; provider: LlmProvider }
   | { type: "openSettingsJson" }
   | { type: "resetSettingsToDefaults" }
   | { type: "clearScanHistory" }
   | { type: "clearLogs" }
   | { type: "refreshRules" }
-  | { type: "openRuleFile"; fileId: string };
+  | { type: "openRuleFile"; fileId: string }
+  | { type: "createCustomRuleFile" }
+  | { type: "createPolicyFile"; kind: "normal" | "taint" | "custom" }
+  | { type: "deletePolicyFile"; fileId: string }
+  | { type: "setRuleFileEnabled"; fileId: string; enabled: boolean }
+  | { type: "setRuleEnabled"; ruleId: string; enabled: boolean }
+  | { type: "importRuleFileFromUrl" }; // ruleId is scoped as "<fileId>::<ruleId>" from the UI
