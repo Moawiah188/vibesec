@@ -2,7 +2,7 @@
   "name": "vibesec",
   "displayName": "VibeSec",
   "description": "AI-assisted security scanner for vibe coders",
-  "version": "0.8.6",
+  "version": "0.8.7",
   "publisher": "Moawiah188",
   "repository": {
     "type": "git",

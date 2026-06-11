@@ -1,5 +1,7 @@
 src/**
-node_modules/**
 test-samples/**
 tsconfig.json
 .vscode/**
+esbuild.design.mjs
+design/**
+.gitignore

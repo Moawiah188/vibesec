@@ -81,6 +81,20 @@ semgrep --version
 
 ---
 
+## Install the extension (.vsix)
+
+If you just want to use VibeSec (not build it from source), install the packaged `.vsix`:
+
+1. Download `vibesec-<version>.vsix` from the [Releases page](https://github.com/Moawiah188/vibesec/releases/latest).
+2. Install it, either way works:
+   - **Command line:** `code --install-extension vibesec-<version>.vsix`
+   - **From VS Code:** open the Extensions panel → `…` menu (top-right) → **Install from VSIX…** → pick the file.
+3. Reload VS Code if prompted. VibeSec appears in the activity bar on the left.
+
+> Make sure [Semgrep](#install-semgrep) is installed and on your PATH first — VibeSec uses it under the hood.
+
+---
+
 ## Getting Started (Development)
 
 ### 1. Clone the repo

@@ -4,6 +4,19 @@ All notable changes to VibeSec are documented here.
 
 ---
 
+## [0.8.7] — Packaging Fix
+
+### Fixed
+- Runtime dependencies (`js-yaml`, `minimatch`) are now included in the packaged `.vsix`. Previously `.vscodeignore` excluded all of `node_modules/`, so an installed extension failed to load with "Cannot find module 'js-yaml'". `vsce` now ships only the production dependency closure.
+
+### Changed
+- Trimmed build-only files (webview `design/` sources, `esbuild.design.mjs`, `.gitignore`) from the published package.
+
+### Added
+- README "Install the extension (.vsix)" section with end-user install steps.
+
+---
+
 ## [0.8.6] — Multi-Policy Activation Fix
 
 ### Overview
